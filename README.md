@@ -30,6 +30,7 @@ Fluksio is a relatively new framework (developed by myself).
 Documentation is available here: https://docs.fluksio.com/getting-started/data-science/
 If we hit any limitations or encounter problems, we should stop and flag them in `NOTEPAD.md` instead of trying workarounds.
 Then Fluksio will be fixed and we can continue.
+The same holds true for any limitations/issues with qml-essentials.
 
 ## Theoretical Motivation
 
