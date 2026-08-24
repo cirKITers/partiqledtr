@@ -739,7 +739,7 @@ wheels = [
 
 [[package]]
 name = "fluksio"
-version = "0.1.0"
+version = "0.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiomqtt" },
@@ -766,21 +766,21 @@ dependencies = [
     { name = "tenacity" },
     { name = "uv" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f9/4c/532159f66a8dffef67e0acb658a088dd9da505a255bbe8b1e96dc8160021/fluksio-0.1.0.tar.gz", hash = "sha256:5ded67180db32e589f7ab85e53cfde4f425c48613f46eeea258ee057286dce62", size = 335839, upload-time = "2026-08-24T13:00:55.146Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ae/00/39d28f171060e1d560ad332723e8c760f880fc244048a8226450206cfaff/fluksio-0.1.1.tar.gz", hash = "sha256:6854b99759ed8caedc5b07526d0e95688dd133dddc593844d5cbfe1678271c6a", size = 350905, upload-time = "2026-08-24T19:40:51.43Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2e/71/0578fd43d89619a7982dc4fb087ca73cf00cf19c14d938264e2570f041dd/fluksio-0.1.0-py3-none-any.whl", hash = "sha256:ab93e24d95f38e6f23c9e0184f2bd9df0df4804b39146080a591aa90ef12ba4e", size = 298692, upload-time = "2026-08-24T13:00:52.76Z" },
+    { url = "https://files.pythonhosted.org/packages/fd/80/ae0e453f860c67f00aaa2812664a7cbd7fdd866a5eed7a4e55993734666e/fluksio-0.1.1-py3-none-any.whl", hash = "sha256:550e7c49da660bda257b949cd70f85709f3dc9836fcf7f06eeadf0c1ad0c6fff", size = 308744, upload-time = "2026-08-24T19:40:49.448Z" },
 ]
 
 [[package]]
 name = "fluksio-worker"
-version = "0.1.0"
+version = "0.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e0/f3/e8798a0d22b8fd14770078cb588d520429d01446ad089312c0a8d482df47/fluksio_worker-0.1.0.tar.gz", hash = "sha256:02310d060b76dd0496f40ada2b1dee8a3cc391e1be664b4d305e5414ee7dbda7", size = 23461, upload-time = "2026-08-24T13:00:50.629Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f3/b5/1e21808c65daf099999243b8810af1df427782ecfab4a078f86a0b3eb1f9/fluksio_worker-0.1.1.tar.gz", hash = "sha256:e2d263266eba7ed4a211e5a60baa6db1c60a561b2b54fb57c49205260d0e6f32", size = 23447, upload-time = "2026-08-24T19:40:47.249Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f1/ed/26335c711da6c742e6cb1bb44b9561258f9154370f513013b1496fb24dc9/fluksio_worker-0.1.0-py3-none-any.whl", hash = "sha256:02d65f4e5d199993c0bc19ea8c5547a6f0e23f5bcd316fe7e7eb625e16f2d313", size = 25397, upload-time = "2026-08-24T13:00:49.162Z" },
+    { url = "https://files.pythonhosted.org/packages/1a/19/05bbcc059abda6f041d035111d8090cf81a78889a22292a1f6c09d41911c/fluksio_worker-0.1.1-py3-none-any.whl", hash = "sha256:57152596e5de6015e1163559213aea69a65b4f1c79d1803864b2a960fccc1020", size = 25387, upload-time = "2026-08-24T19:40:46.03Z" },
 ]
 
 [[package]]
@@ -1275,7 +1275,7 @@ wheels = [
 
 [[package]]
 name = "mcp"
-version = "1.29.0"
+version = "1.29.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -1293,9 +1293,9 @@ dependencies = [
     { name = "typing-inspection" },
     { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/30/d3/f9acc21dfc886e4f78e2add1a47db46ce16884346afde53f8a064c02c891/mcp-1.29.0.tar.gz", hash = "sha256:52d01f334de1868cc3bb2d6604931126a67631f99a6c5d3b82ba47290315ec36", size = 643148, upload-time = "2026-07-28T13:41:41.939Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b5/48/0bb26fdfe7ac16875f534a101ce2405eae192bdef37e7451f2f4507c13ec/mcp-1.29.1.tar.gz", hash = "sha256:1967ba4c315f7a375146209949f45950d18b0efd2f913d7cf3400bc723ee5f04", size = 646823, upload-time = "2026-08-24T18:30:41.161Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/01/c8/248b201f6d753d69fd5d6506011abbb35a946d9142b2ae311a948fd0be3d/mcp-1.29.0-py3-none-any.whl", hash = "sha256:f5a075bb611f23d6f4d080c6a1699fa62772eebc562ba9e66b306ddde1c755f7", size = 223436, upload-time = "2026-07-28T13:41:40.337Z" },
+    { url = "https://files.pythonhosted.org/packages/0b/04/d6b4fb82eefe9e81807aabca1ac98f460ae0883974b83a997aaa20c52545/mcp-1.29.1-py3-none-any.whl", hash = "sha256:b6310eeb59153300c4ab8b9aec4c52f4819a2d6a8e429eb43d908bed7c783648", size = 224653, upload-time = "2026-08-24T18:30:39.573Z" },
 ]
 
 [[package]]
@@ -1546,7 +1546,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "flax", specifier = ">=0.12.9" },
-    { name = "fluksio", specifier = ">=0.1.0" },
+    { name = "fluksio", specifier = ">=0.1.1" },
     { name = "matplotlib", specifier = ">=3.9" },
     { name = "numpy", specifier = ">=2" },
     { name = "optax", specifier = ">=0.2.8" },
