@@ -1,0 +1,11 @@
+[project]
+name = "partiqledtr"
+version = "0.1.0"
+description = "Particle decay tree reconstruction (LCAG) with quantum Fourier models"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "flax>=0.12.9",
+    "fluksio>=0.1.0",
+    "qml-essentials>=0.2.2",
+]
