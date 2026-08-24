@@ -20,7 +20,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.sources]
-qml-essentials = { git = "https://github.com/cirKITers/qml-essentials", rev = "3cc19f1" }
+qml-essentials = { git = "https://github.com/cirKITers/qml-essentials", rev = "07d325fefb6fab1b84eb32ccb16e42dcbe4994ea" }
 
 [dependency-groups]
 dev = ["ruff>=0.12", "ty", "pytest>=8"]

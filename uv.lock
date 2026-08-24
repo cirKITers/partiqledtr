@@ -1551,7 +1551,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2" },
     { name = "optax", specifier = ">=0.2.8" },
     { name = "phasespace", specifier = ">=1.10" },
-    { name = "qml-essentials", git = "https://github.com/cirKITers/qml-essentials?rev=3cc19f1" },
+    { name = "qml-essentials", git = "https://github.com/cirKITers/qml-essentials?rev=07d325fefb6fab1b84eb32ccb16e42dcbe4994ea" },
 ]
 
 [package.metadata.requires-dev]
@@ -1894,13 +1894,15 @@ wheels = [
 [[package]]
 name = "qml-essentials"
 version = "0.2.2"
-source = { git = "https://github.com/cirKITers/qml-essentials?rev=3cc19f1#3cc19f1071598a55f7401dec5fe59abad2b2328f" }
+source = { git = "https://github.com/cirKITers/qml-essentials?rev=07d325fefb6fab1b84eb32ccb16e42dcbe4994ea#07d325fefb6fab1b84eb32ccb16e42dcbe4994ea" }
 dependencies = [
     { name = "diffrax" },
+    { name = "equinox" },
     { name = "jax" },
     { name = "jaxlib" },
     { name = "optax" },
     { name = "psutil" },
+    { name = "scipy" },
 ]
 
 [[package]]
