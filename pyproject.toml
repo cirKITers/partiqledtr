@@ -3,9 +3,48 @@ name = "partiqledtr"
 version = "0.1.0"
 description = "Particle decay tree reconstruction (LCAG) with quantum Fourier models"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "flax>=0.12.9",
     "fluksio>=0.1.0",
-    "qml-essentials>=0.2.2",
+    "qml-essentials",
+    "optax>=0.2.8",
+    "numpy>=2",
+    "matplotlib>=3.9",
+    # TensorFlow-backed; imported only in partiqledtr/data/generation.py.
+    "phasespace>=1.10",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+qml-essentials = { git = "https://github.com/cirKITers/qml-essentials", rev = "3cc19f1" }
+
+[dependency-groups]
+dev = ["ruff>=0.12", "ty", "pytest>=8"]
+
+[tool.ruff]
+line-length = 100
+extend-exclude = ["reference"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "NPY", "RUF", "D"]
+ignore = ["D104", "D105", "D107"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D"]
+
+[tool.ty.src]
+include = ["partiqledtr", "tests"]
+
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["gen: requires phasespace/TensorFlow"]
