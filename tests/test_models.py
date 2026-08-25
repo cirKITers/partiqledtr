@@ -79,8 +79,9 @@ def test_frontend_is_identity_at_init():
 
 def test_frontend_cannot_mix_features():
     frontend = ElementwiseResidualMLP(F, 4, rngs=nnx.Rngs(SEED))
-    frontend.w2[...] = jax.random.normal(jax.random.key(3), frontend.w2.shape)
-    x = jax.random.normal(jax.random.key(4), (F,))
+    dtype = frontend.w2[...].dtype
+    frontend.w2[...] = jax.random.normal(jax.random.key(3), frontend.w2.shape, dtype=dtype)
+    x = jax.random.normal(jax.random.key(4), (F,), dtype=dtype)
     jac = jax.jacobian(frontend)(x)
     assert jac.shape == (F, F)
     # Exactly zero off-diagonal: the einsums never contract over the feature axis.
@@ -96,6 +97,27 @@ def test_identity_frontend_leaves_model_output_unchanged(cls):
     plain, wrapped = _build(cls), _build(cls, frontend=frontend)
     assert jnp.array_equal(plain(x, mask), wrapped(x, mask))
     assert n_params(wrapped) == n_params(plain) + 3 * F * 4
+
+
+def test_parameter_dtype_does_not_follow_the_global_x64_flag():
+    """Every parameter is float32, whether or not something enabled x64.
+
+    Parameters created without an explicit dtype follow the global
+    `jax_enable_x64` flag, while every `nnx.Linear` pins `param_dtype=float32`.
+    Mixing the two silently promotes the forward pass to float64, so a model built
+    under one setting would not match one built under the other. Pinning the dtype
+    everywhere is what keeps the models independent of a global flag that any
+    dependency, or the user, may flip.
+    """
+    was_enabled = jax.config.jax_enable_x64
+    try:
+        for enabled in (False, True):
+            jax.config.update("jax_enable_x64", enabled)
+            for module in (_build(LCAGGNN), ElementwiseResidualMLP(F, 4, rngs=nnx.Rngs(SEED))):
+                dtypes = {leaf.dtype for leaf in jax.tree.leaves(nnx.state(module, nnx.Param))}
+                assert dtypes == {np.dtype("float32")}, f"x64={enabled} gave {dtypes}"
+    finally:
+        jax.config.update("jax_enable_x64", was_enabled)
 
 
 @pytest.mark.parametrize("cls", [LCAGGNN, MLPBaseline, ElementwiseResidualMLP])

@@ -7,12 +7,15 @@ from partiqledtr.data.dataset import ENCODINGS, SPLITS, assemble_dataset, datase
 
 pytestmark = pytest.mark.gen
 
+# per_group (2) has to reach the FSP span (D83), and the *shapes* have to exist:
+# at max_depth 4 there are 4 distinct four-leaf shapes and 8 five-leaf ones, so six
+# distinct topologies fit comfortably. At max_depth 3 there would be only 3 + 3.
 SMALL = {
     "n_topologies": 2,
     "n_events_per_topology": 40,
-    "min_fsps": 3,
+    "min_fsps": 4,
     "max_fsps": 5,
-    "max_depth": 3,
+    "max_depth": 4,
 }
 
 

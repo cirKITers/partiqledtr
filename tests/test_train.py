@@ -145,18 +145,15 @@ def test_overfits_a_tiny_batch(capsys):
         "n_blocks": 2,
         "ansatz": "XY_Brickwork",
         "n_layers": 2,
+        "angle_map": "pair_polar",
+        # Carried in the config, not beside it, so `evaluate` rebuilds the arm it
+        # scored rather than silently dropping the rotation (D81).
+        "whitening": None,
     }
     assert final["n_params"] > 0
-    assert set(records[0]) == {
-        "epoch",
-        "train_loss",
-        "val_loss",
-        "val_accuracy",
-        "val_perfect",
-        "g_purity",
-    }
-    # A classical model encodes no quantum state, so it reports no purity.
-    assert np.isnan(records[0]["g_purity"])
+    # A classical model encodes no quantum state, so it omits the purity key
+    # entirely: a float port accepts neither NaN nor None (D75).
+    assert set(records[0]) == {"epoch", "train_loss", "val_loss", "val_accuracy", "val_perfect"}
 
 
 def test_train_model_rejects_a_split_smaller_than_a_batch():
@@ -244,7 +241,7 @@ def test_evaluate_split_returns_the_documented_keys():
     full = evaluate_split(
         module, split, encoding="angles", batch_size=4, weights=np.ones(C), valid_trees=True
     )
-    assert set(full) == set(plain) | {"loss", "valid_tree"}
+    assert set(full) == set(plain) | {"loss", "valid_tree", "valid_tree_strict"}
     assert all(0.0 <= full[key] <= 1.0 for key in plain)
     assert full["loss"] > 0.0
     # Class 0 is never a label here, so the _primary variants coincide (D49).
@@ -327,3 +324,109 @@ def test_the_whitening_arm_is_opt_in():
     ports = {port.name: port for port in train_flow.inputs}
     assert "whiten" in ports, "the flow must expose `whiten` so the arm is sweepable"
     assert ports["whiten"].initial is False
+
+
+def test_node_payloads_are_port_legal():
+    """Whatever the nodes publish must satisfy the declared ports.
+
+    Fluksio rejects a non-finite float on any port rather than letting one leave
+    the engine as unparseable JSON, and it does so however deeply the value sits.
+    Metrics over an empty subset are legitimately undefined, so they have to
+    travel as None (json) or be omitted (float) -- checked here against the real
+    port specs, because the failure would otherwise only appear mid-run.
+    """
+    from fluksio.flow.messages import DType, MessageSpec
+
+    from partiqledtr.train import jsonable
+
+    undefined = {
+        "overall": {"n_events": 4, "accuracy": 0.5, "valid_tree": float("nan")},
+        "unknown": {"n_events": 0, "accuracy": float("nan"), "perfect": float("nan")},
+    }
+    record = MessageSpec(name="test_metrics", port="test_metrics", dtype=DType.JSON)
+    with pytest.raises(TypeError, match="cannot travel as JSON"):
+        record.check(undefined)
+    record.check(jsonable(undefined))  # must not raise
+    assert jsonable(undefined)["unknown"]["accuracy"] is None
+    assert jsonable(undefined)["overall"]["accuracy"] == 0.5
+
+    stream = MessageSpec(name="g_purity", port="g_purity", dtype=DType.FLOAT)
+    stream.check(0.8)
+    for rejected in (float("nan"), None):
+        with pytest.raises(TypeError):
+            stream.check(rejected)
+
+
+def test_frontend_does_not_reseed_the_model():
+    """Attaching a front end must add one, not re-initialise everything (D84).
+
+    Built from a single rng stream, the front end's own draws shift every later
+    draw, so the raw and learned arms of the phase-4 study would have differed by a
+    full re-initialisation as well as by the front end -- a confound in exactly the
+    comparison the study is about.
+    """
+    common: dict[str, Any] = {"model": "gnn", "n_features": F, "n_classes": C, "dim": 8, "seed": 3}
+    plain = build_model(frontend="none", **common)
+    with_frontend = build_model(frontend="mlp", **common)
+
+    attached = dict(nnx.to_flat_state(nnx.state(with_frontend, nnx.Param)))
+    shared = [
+        (path, leaf)
+        for path, leaf in nnx.to_flat_state(nnx.state(plain, nnx.Param))
+        if path[0] != "frontend"
+    ]
+    assert shared, "the baseline must have parameters outside the front end"
+    for path, leaf in shared:
+        np.testing.assert_array_equal(np.asarray(leaf[...]), np.asarray(attached[path][...]))
+
+
+def test_parameter_matched_arm_is_derived_not_asserted():
+    """The documented classical baseline has to actually match the quantum one (D86).
+
+    The write-up claimed dim=8 was parameter-matched; it is sixteen times larger.
+    matched_dim computes the width instead, so the claim is checkable.
+    """
+    from functools import partial
+
+    from partiqledtr.models import matched_dim, n_params
+
+    quantum = build_model(model="qfm", frontend="none", n_features=4, n_classes=C)
+    target = n_params(quantum)
+    build = partial(build_model, model="gnn", frontend="none", n_features=4, n_classes=C)
+
+    dim = matched_dim(target, build, n_blocks=3)
+    matched = n_params(build(dim=dim, n_blocks=3))
+    assert abs(matched - target) / target < 0.1
+    # ... and the number the docs used to carry is nowhere near.
+    assert n_params(build(dim=8, n_blocks=3)) > 10 * target
+
+
+def test_checkpoint_round_trip_preserves_the_whitening_arm():
+    """A whitened checkpoint must not be rebuilt as the raw arm (D81).
+
+    The rotation is not an nnx.Param, so before it moved into the config `evaluate`
+    silently scored the whitened arms of the phase-4 matrix on unrotated angles.
+    """
+    from partiqledtr.data.whitening import sample_rotation
+    from partiqledtr.models.qfm import QFMConstellation
+
+    rotation = sample_rotation(np.random.default_rng(SEED))
+    config: dict[str, Any] = {
+        "model": "qfm",
+        "frontend": "none",
+        "n_features": 4,
+        "n_classes": C,
+        "whitening": rotation.tolist(),
+    }
+    module = build_model(**config)
+    payload = state_to_npz(module, config)
+
+    rebuilt = build_model(**npz_config(payload))
+    npz_to_state(rebuilt, payload)
+    assert isinstance(rebuilt, QFMConstellation)
+    assert rebuilt.whitening is not None
+    np.testing.assert_allclose(np.asarray(rebuilt.whitening), rotation, atol=1e-6)
+
+    x = jnp.asarray(np.random.default_rng(1).normal(size=(2, L, 4)))
+    mask = jnp.ones((2, L), dtype=bool)
+    np.testing.assert_allclose(module(x, mask), rebuilt(x, mask), atol=1e-6)

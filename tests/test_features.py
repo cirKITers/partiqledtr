@@ -8,9 +8,9 @@ from partiqledtr.data.features import (
     featurize,
     normalization_scales,
     pad_events,
-    polar_angles,
     to_cartesian,
 )
+from partiqledtr.models.qfm import pair_polar
 
 
 def test_featurize_angles_by_hand():
@@ -80,30 +80,28 @@ def test_to_cartesian_rejects_bad_input():
         to_cartesian(np.zeros((2, 4)))
 
 
-def test_polar_angles_matches_the_unflattening_convention():
-    x = np.array([[1.0, 0.0, 0.0, 1.0, -1.0, 0.0, 1.0, -1.0]])
-    # arctan2(x[1::2], x[0::2]) mapped into [0, 2pi): the last two pairs are the ones the
-    # np.mod matters for (arctan2 returns -pi and -pi/4 there).
-    np.testing.assert_allclose(
-        polar_angles(x), [[0.0, np.pi / 2, np.pi, 7 * np.pi / 4]], atol=1e-12
-    )
+def test_pair_polar_matches_the_unflattening_convention():
+    # arctan2(x[1::2], x[0::2]) mapped into [0, 2pi): the second pair is the one the
+    # mod matters for (arctan2 returns -pi/4 there).
+    x = np.array([[1.0, 0.0, 1.0, -1.0]])
+    np.testing.assert_allclose(pair_polar(x), [[0.0, 7 * np.pi / 4]], atol=1e-6)
 
 
-def test_polar_angles_range_and_shape():
+def test_pair_polar_range_and_shape():
     rng = np.random.default_rng(9)
-    x = rng.normal(size=(4, 6, 8))
-    angles = polar_angles(x)
+    x = rng.normal(size=(4, 6, 4))
+    angles = np.asarray(pair_polar(x))
 
-    assert angles.shape == (4, 6, 4)
+    assert angles.shape == (4, 6, 2)
     assert np.all((angles >= 0.0) & (angles < 2 * np.pi))
     np.testing.assert_allclose(
-        angles, np.mod(np.arctan2(x[..., 1::2], x[..., 0::2]), 2 * np.pi), atol=0
+        angles, np.mod(np.arctan2(x[..., 1::2], x[..., 0::2]), 2 * np.pi), atol=1e-6
     )
 
 
-def test_polar_angles_rejects_odd_widths():
-    with pytest.raises(ValueError, match="even"):
-        polar_angles(np.zeros((2, 5)))
+def test_pair_polar_rejects_non_four_vectors():
+    with pytest.raises(ValueError, match="four-vectors"):
+        pair_polar(np.zeros((2, 5)))
 
 
 def test_normalization_is_scale_only_and_ignores_padding():

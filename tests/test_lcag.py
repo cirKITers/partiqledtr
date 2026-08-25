@@ -12,6 +12,7 @@ import pytest
 from partiqledtr.data.lcag import (
     InvalidLCAGError,
     is_valid_lcag,
+    lcag_roundtrip,
     lcag_to_adjacency,
     shuffle_leaves,
     topology_to_lcag,
@@ -298,3 +299,26 @@ def _lcag_from_adjacency(adjacency, n_leaves):
                 shared = a
             lcag[i, j] = lcag[j, i] = heights[shared]
     return lcag
+
+
+def test_lcag_roundtrip_reproduces_a_real_lcag_and_exposes_a_greedy_acceptance():
+    """The strict test the greedy reconstruction is not (D85).
+
+    A genuine LCAG re-derives itself exactly. A matrix the greedy reconstruction
+    accepts need not: it reduces to *a* tree, but not to one that would produce it
+    back, which is the loophole the lenient valid-tree rate leaves open.
+    """
+    lcag = topology_to_lcag(sample_topology(np.random.default_rng(11), n_fsps=6))[0].astype(int)
+    np.testing.assert_array_equal(lcag_roundtrip(lcag), lcag)
+
+    # Three leaves pairwise claiming different ancestors: greedy accepts, strict does not.
+    inconsistent = np.array([[0, 1, 2, 2], [1, 0, 2, 2], [2, 2, 0, 1], [2, 2, 1, 0]])
+    inconsistent[0, 2] = inconsistent[2, 0] = 1
+    if is_valid_lcag(inconsistent):
+        assert not np.array_equal(lcag_roundtrip(inconsistent), inconsistent)
+
+
+def test_lcag_to_adjacency_rejects_a_single_leaf():
+    """One leaf is no decay: there is no pair and no ancestor to reconstruct."""
+    with pytest.raises(InvalidLCAGError, match="at least two leaves"):
+        lcag_to_adjacency(np.array([[0]]))

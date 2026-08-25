@@ -121,3 +121,31 @@ def test_metrics_validate_their_inputs():
         class_weights(labels, n_classes=1)
     with pytest.raises(ValueError, match="exceeds n_classes"):
         class_weights(labels, n_classes=2)
+
+
+def test_strict_valid_tree_rejects_a_prediction_that_keeps_only_one_pair():
+    """The lenient metric's second hole, and why strict is the primary number (D85).
+
+    Dropping the leaves a prediction calls disconnected means a model can score a
+    valid tree by predicting class 0 everywhere but one pair -- and nothing in the
+    loss discourages that, since class 0 is never a target and carries weight 0.
+    """
+    labels = np.ones((1, 5, 5), dtype=int)
+    np.fill_diagonal(labels[0], -1)
+    degenerate = np.zeros((1, 5, 5), dtype=int)
+    degenerate[0, 0, 1] = degenerate[0, 1, 0] = 1
+
+    assert valid_tree_rate(degenerate, labels) == 1.0
+    assert valid_tree_rate(degenerate, labels, strict=True) == 0.0
+
+
+def test_strict_valid_tree_accepts_a_genuine_lcag():
+    """A real LCAG has to survive the strict test, or it would only measure rigour."""
+    from partiqledtr.data.lcag import topology_to_lcag
+    from partiqledtr.data.topology import sample_topology
+
+    lcag = topology_to_lcag(sample_topology(np.random.default_rng(3), n_fsps=5))[0].astype(int)
+    labels = lcag.copy()[None]
+    np.fill_diagonal(labels[0], -1)
+
+    assert valid_tree_rate(lcag[None], labels, strict=True) == 1.0

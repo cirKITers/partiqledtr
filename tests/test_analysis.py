@@ -11,13 +11,14 @@ from qml_essentials.algebra import (
     matchgate_basis,
     matchgate_generators,
 )
-from qml_essentials.operations import PauliWord
 
 from partiqledtr.analysis import (
     ANSAETZE,
     G_PURITY_BY_ANSATZ,
     ansatz_generators,
+    dla_basis,
     dla_check,
+    g_purity_exact,
     g_purity_full,
     g_purity_offdiag,
     g_purity_su,
@@ -51,15 +52,9 @@ def _load_reference():
     return module
 
 
-def _closure(generators: list[str]) -> list[str | PauliWord]:
-    """Bare Pauli strings of the Lie closure of `generators`.
-
-    Typed as `list[str | PauliWord]` because upstream annotates
-    `List[Union[str, PauliWord]]`, which list invariance makes incompatible with
-    a plain `list[str]` (NOTEPAD.md).
-    """
-    words: list[str | PauliWord] = list(generators)
-    return [w.to_pauli_string() for w in lie_closure_paulis(words)]
+def _closure(generators: list[str]) -> list[str]:
+    """Bare Pauli strings of the Lie closure of `generators`."""
+    return [word.to_pauli_string() for word in lie_closure_paulis(generators)]
 
 
 def _angles(shape, rng):
@@ -120,9 +115,14 @@ def test_diagonal_word_counts_certify_the_floor(n):
 @pytest.mark.parametrize("ansatz", ANSAETZE)
 @pytest.mark.parametrize("n", [2, 3, 4])
 def test_uncapped_closure_agrees_with_upstream(ansatz, n):
-    # analysis._lie_closure_capped duplicates lie_closure_paulis to add the cap
-    # (see its ponytail note); uncapped it must give the identical dimension.
-    assert dla_check(ansatz, n_qubits=n)["dim_g"] == len(_closure(ansatz_generators(ansatz, n)))
+    """`dla_check` must report the closure of the generators it derived.
+
+    Not a tautology: it checks that `ansatz_generators` feeds through to the
+    reported dimension, and that a cap large enough to be inert stays inert.
+    """
+    report = dla_check(ansatz, n_qubits=n)
+    assert report["dim_g"] == len(_closure(ansatz_generators(ansatz, n)))
+    assert report["capped"] is False
 
 
 def test_dla_check_result_shape():
@@ -210,7 +210,7 @@ def test_purity_matches_g_purity_from_basis_on_statevector():
     n = 4
     rng = np.random.default_rng(SEED + 2)
     xy_basis = _closure(ansatz_generators("XY_Brickwork", n))
-    mg_basis: list[str | PauliWord] = list(matchgate_basis(n))
+    mg_basis = matchgate_basis(n)
     assert len(xy_basis) == 12 and len(mg_basis) == dim_so2n(n)
     for _ in range(6):
         theta = _angles((n,), rng)
@@ -281,3 +281,60 @@ def test_clustered_angles_collapse_the_floor_free_purity():
     assert float(g_purity_offdiag(clustered).max()) < mu / 2
     assert float(g_purity_offdiag(clustered).mean()) < mu / 100
     assert float(g_purity_full(clustered).min()) > 0.9 * n
+
+
+@pytest.mark.parametrize("ansatz", ANSAETZE)
+def test_cap_truncates_and_says_so(ansatz):
+    """A cap stops the closure early and marks `dim_g` as a lower bound.
+
+    This is the whole reason `max_dim` exists: Circuit_19 saturates `su(2**n)`, so
+    an uncapped closure enumerates `4**n - 1` words and takes over a minute at
+    n=6. A capped result must be exactly `max_dim` words with `capped` set, so a
+    reader knows not to treat `dim_g` as the true dimension.
+    """
+    dim_g = int(dla_check(ansatz, n_qubits=4)["dim_g"])
+    cap = len(ansatz_generators(ansatz, 4)) + 1
+    assert cap < dim_g, "the cap has to bite for this to test anything"
+
+    capped = dla_check(ansatz, n_qubits=4, max_dim=cap)
+    assert capped["capped"] is True
+    assert capped["dim_g"] == cap  # a lower bound, not the dimension
+
+    with pytest.raises(ValueError, match="max_dim"):
+        dla_check(ansatz, n_qubits=4, max_dim=1)
+
+
+@pytest.mark.parametrize(
+    ("ansatz", "expected"),
+    [("XY_Brickwork", 0), ("Matchgate", 4), ("Circuit_19", 15)],
+)
+def test_diagonal_word_count_at_the_constellation_size(ansatz, expected):
+    """The floored/floor-free certificate at the size actually used, n_qubits=4 (D52).
+
+    Circuit_19's 2**n - 1 was the one documented value with no test behind it, and
+    it is the arm whose whole reading -- input-distribution independent, no front
+    end can help -- rests on saturating su(2**n).
+    """
+    record = dla_check(ansatz, n_qubits=4)
+    assert record["n_diag_words"] == expected
+    assert not record["capped"]
+
+
+def test_exact_purity_matches_the_closed_form_on_a_product_state():
+    """The two purity routes have to agree where they describe the same state (D78).
+
+    With no ansatz in the way, the encoded state *is* the RY product state, so the
+    closed form and the sum over the DLA basis must coincide -- which is what makes
+    the exact route a check on the closed one rather than a second guess.
+    """
+    rng = np.random.default_rng(5)
+    angles = rng.uniform(0.0, 2.0 * np.pi, size=(6, 4))
+    # prod_q RY(theta_q)|0>, built directly: cos(theta/2)|0> + sin(theta/2)|1>.
+    states = np.ones((len(angles), 1), dtype=complex)
+    for qubit in range(4):
+        half = angles[:, qubit, None] / 2.0
+        states = np.concatenate([states * np.cos(half), states * np.sin(half)], axis=1)
+
+    for ansatz, closed in G_PURITY_BY_ANSATZ.items():
+        exact = g_purity_exact(states, dla_basis(ansatz, 4))
+        np.testing.assert_allclose(exact, np.asarray(closed(jnp.asarray(angles))), atol=1e-6)

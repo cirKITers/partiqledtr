@@ -65,29 +65,64 @@ def test_generation_is_deterministic_and_seed_sensitive():
 
 
 def test_unweighting_reproduces_the_weighted_distribution():
-    """Accepted events must match the weighted sample, not the raw one.
+    """Accepted events must follow the weighted sample, not the raw one.
 
-    A 3-body decay has non-uniform phase-space weights, so the mean energy of a
-    daughter differs between the raw sample and the weight-corrected one.  The
-    unweighted sample must agree with the weighted mean and, at this statistics,
-    be distinguishable from the raw mean -- which is the whole reason for
-    unweighting (DECISIONS.md D12).
+    A multi-body decay has non-uniform phase-space weights, so the mean energy of
+    a daughter differs between the raw sample and the weight-corrected one. The
+    unweighted sample must agree with the weighted mean and be clearly separated
+    from the raw one -- which is the whole reason for unweighting (D12).
+
+    The tolerance is the sample's own standard error rather than a fixed number.
+    Measured at 100k events: the unweighted mean lands 0.01-0.05 from the weighted
+    one against a 4-sigma bound of 0.097, while the raw sample sits 0.202 away --
+    comfortably outside the 5-sigma bound of 0.121. An earlier fixed tolerance of
+    0.05 was about 1.2 sigma and passed only by luck.
     """
-    import tensorflow as tf
-
     from partiqledtr.data.generation import _build_particle, generate_events
 
     root = _build_particle(TOPOLOGY)
-    weights, raw = root.generate(200_000, seed=tf.random.Generator.from_seed(5))
-    weights = np.asarray(weights)
-    energy = np.asarray(raw["a"])[:, 3]
-
-    raw_mean = energy.mean()
+    drawn = root.generate(200_000, key=5)
+    weights = np.asarray(drawn[0])
+    energy = np.asarray(drawn[-1]["a"])[:, 3]
     weighted_mean = float(np.average(energy, weights=weights))
-    unweighted_mean = generate_events(TOPOLOGY, 40_000, seed=5)["a"][:, 3].mean()
 
-    assert abs(unweighted_mean - weighted_mean) < 0.05
-    assert abs(raw_mean - weighted_mean) > 0.1
+    sample = generate_events(TOPOLOGY, 100_000, seed=5)["a"][:, 3]
+    standard_error = sample.std() / np.sqrt(sample.size)
+
+    assert abs(sample.mean() - weighted_mean) < 4 * standard_error
+    assert abs(energy.mean() - weighted_mean) > 5 * standard_error
+
+
+def test_output_crosses_the_jax_boundary_as_numpy():
+    """`generate_events` must hand back numpy, not phasespace's float64 JAX arrays.
+
+    phasespace runs its kinematics under a scoped `jax.enable_x64()` and returns
+    float64 arrays even though the calling program is float32. Combining those
+    directly with a float32 JAX array warns and silently truncates::
+
+        f64 + jnp.zeros(4, jnp.float32)   -> UserWarning, result float32
+
+    Converting through numpy is the clean boundary and is what this function does,
+    so downstream code never meets a stray float64 JAX array. A future edit that
+    returned the arrays as-is would only warn, not fail, hence this guard.
+    """
+    import warnings
+
+    import jax.numpy as jnp
+
+    from partiqledtr.data.generation import generate_events
+
+    events = generate_events(TOPOLOGY, 32, seed=0)
+
+    for array in events.values():
+        assert isinstance(array, np.ndarray)
+        assert not isinstance(array, jnp.ndarray)
+        assert array.dtype == np.float64  # full precision survives the crossing
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        stacked = jnp.asarray(np.stack(list(events.values()), axis=1))
+    assert stacked.dtype == jnp.float32  # the training path's dtype, no warning
 
 
 def test_rejects_invalid_arguments():
