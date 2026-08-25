@@ -37,7 +37,17 @@ import jax
 import numpy as np
 import phasespace
 
-__all__ = ["generate_events", "leaf_names"]
+__all__ = ["UngeneratableTopologyError", "generate_events", "leaf_names"]
+
+
+class UngeneratableTopologyError(RuntimeError):
+    """A topology whose phase-space acceptance rate is too low to sample.
+
+    Not a bug and not a bad topology in itself -- a decay whose daughter masses
+    nearly saturate the parent mass genuinely has almost no phase space, so
+    unweighting rejects nearly every draw. The caller's remedy is to sample a
+    different topology (``DECISIONS.md`` D90).
+    """
 
 
 def leaf_names(topology: dict[str, Any]) -> list[str]:
@@ -68,7 +78,7 @@ def generate_events(
     seed: int,
     *,
     chunk_factor: float = 4.0,
-    max_rounds: int = 100,
+    max_draws: int = 40_000_000,
 ) -> dict[str, np.ndarray]:
     """Generate unweighted decay events for one topology.
 
@@ -85,7 +95,10 @@ def generate_events(
         chunk_factor: Headroom on the chunk size derived from the measured
             acceptance rate, so a round normally overshoots rather than needing
             another one.
-        max_rounds: Safety bound on the accept-reject loop.
+        max_draws: Total weighted draws to spend before giving up. This is what
+            "ungeneratable" means operationally -- a decay whose acceptance rate is
+            too low to reach ``n_events`` within the budget -- so it is stated as a
+            budget rather than as a round count (``DECISIONS.md`` D90).
 
     Returns:
         Mapping from final-state particle name to an ``(n_events, 4)`` float array
@@ -93,8 +106,9 @@ def generate_events(
 
     Raises:
         ValueError: If ``n_events`` is not positive or the topology has no decay.
-        RuntimeError: If ``max_rounds`` chunks did not yield ``n_events`` accepted
-            events, which indicates a pathologically low acceptance rate.
+        UngeneratableTopologyError: If ``max_draws`` was spent without reaching
+            ``n_events``. The caller's remedy is a different topology, so the
+            message carries the measured acceptance rate (``DECISIONS.md`` D90).
     """
     if n_events <= 0:
         raise ValueError(f"n_events must be positive, got {n_events}")
@@ -130,14 +144,18 @@ def generate_events(
     rate = max(n_kept / pilot, 1.0 / pilot)
     chunk = int(np.ceil(chunk_factor * max(n_events - n_accepted, 1) / rate))
 
-    for _ in range(max_rounds):
-        if n_accepted >= n_events:
-            break
+    # Spend the budget rather than a round count: what decides whether a topology is
+    # worth keeping is how many draws it costs, and the chunk size already varies by
+    # orders of magnitude with the measured rate (D90).
+    drawn_total = pilot
+    while n_accepted < n_events and drawn_total < max_draws:
         draw(chunk)
-    else:
-        raise RuntimeError(
-            f"unweighting did not reach {n_events} events in {max_rounds} rounds of "
-            f"{chunk} ({n_accepted} accepted); measured acceptance rate is {rate:.3g}"
+        drawn_total += chunk
+    if n_accepted < n_events:
+        raise UngeneratableTopologyError(
+            f"unweighting reached {n_accepted}/{n_events} events in {drawn_total} draws "
+            f"(budget {max_draws}); measured acceptance rate is {n_accepted / drawn_total:.3g}, "
+            f"so this decay leaves too little phase space to sample"
         )
 
     sample = np.concatenate(accepted)[:n_events]
