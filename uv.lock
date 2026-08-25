@@ -683,7 +683,7 @@ wheels = [
 [[package]]
 name = "fluksio"
 version = "0.1.2"
-source = { registry = "https://pypi.org/simple" }
+source = { git = "https://git.stroblme.de/Fluksio/app?subdirectory=backend&rev=3c1596436415c659fa6d421819d8d20d9b48d05a#3c1596436415c659fa6d421819d8d20d9b48d05a" }
 dependencies = [
     { name = "aiomqtt" },
     { name = "alembic" },
@@ -710,21 +710,13 @@ dependencies = [
     { name = "tenacity" },
     { name = "uv" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/44/fd/070054d1dd4b554c4224e9d68f669212d436871a28d6c77cad28a734ea61/fluksio-0.1.2.tar.gz", hash = "sha256:bd39a422bd38260cf46b300242435ba9cb7a42d732c89b1a92cd664ceb027cbe", size = 367946, upload-time = "2026-08-25T11:05:44.74Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/bf/8b/d7688c8deba4425f1913b9c26d3393b4c8142f11d71e0783b3073f4ef61a/fluksio-0.1.2-py3-none-any.whl", hash = "sha256:7e34d4bb71257846beed0cf567ea6f4fcaea43007e222c650cf6ccf1968f914c", size = 320386, upload-time = "2026-08-25T11:05:42.486Z" },
-]
 
 [[package]]
 name = "fluksio-worker"
 version = "0.1.2"
-source = { registry = "https://pypi.org/simple" }
+source = { git = "https://git.stroblme.de/Fluksio/app?subdirectory=worker&rev=3c1596436415c659fa6d421819d8d20d9b48d05a#3c1596436415c659fa6d421819d8d20d9b48d05a" }
 dependencies = [
     { name = "websockets" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/ee/6e/df64d04e864041a42bb5cbd42c541b7b3f703fee4ca15c0c0f661d6326a3/fluksio_worker-0.1.2.tar.gz", hash = "sha256:2c065ca99d87587c9adc18dccae0095538bc7bb20c7f94ff1f36cb511216cd43", size = 23647, upload-time = "2026-08-25T11:05:40.302Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d1/e0/7b3660c68271753ced9f25710beaf8c7aff4846563270228525452324b04/fluksio_worker-0.1.2-py3-none-any.whl", hash = "sha256:7f648b0eb883a81eb87742d855ae1dc1e6ffe558251262367a5442f8be0f494c", size = 25619, upload-time = "2026-08-25T11:05:39.2Z" },
 ]
 
 [[package]]
@@ -1365,7 +1357,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "flax", specifier = ">=0.12.9" },
-    { name = "fluksio", specifier = ">=0.1.1" },
+    { name = "fluksio", git = "https://git.stroblme.de/Fluksio/app?subdirectory=backend&rev=3c1596436415c659fa6d421819d8d20d9b48d05a" },
     { name = "matplotlib", specifier = ">=3.9" },
     { name = "numpy", specifier = ">=2.3" },
     { name = "optax", specifier = ">=0.2.8" },

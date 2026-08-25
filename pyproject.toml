@@ -6,11 +6,11 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "flax>=0.12.9",
-    "qml-essentials",
     "optax>=0.2.8",
     "numpy>=2.3",
     "matplotlib>=3.9",
-    "fluksio>=0.1.1",
+    "qml-essentials",
+    "fluksio",
     "phasespace-jax",
 ]
 
@@ -21,6 +21,7 @@ build-backend = "hatchling.build"
 [tool.uv.sources]
 qml-essentials = { git = "https://github.com/cirKITers/qml-essentials", rev = "59ed6adde3071a3075dd53b1efea016014c015dd" }
 phasespace-jax = { git = "https://github.com/stroblme/phasespace-jax", rev = "4f06c1b37be280666e367b5f97cc5939955c4e22" }
+fluksio = { git = "https://git.stroblme.de/Fluksio/app", rev = "3c1596436415c659fa6d421819d8d20d9b48d05a", subdirectory = "backend" }
 
 [dependency-groups]
 dev = ["ruff>=0.12", "ty", "pytest>=8"]
