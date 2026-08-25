@@ -11,8 +11,7 @@ dependencies = [
     "numpy>=2",
     "matplotlib>=3.9",
     "fluksio>=0.1.1",
-    # TensorFlow-backed; imported only in partiqledtr/data/generation.py.
-    "phasespace>=1.10",
+    "phasespace-jax",
 ]
 
 [build-system]
@@ -21,6 +20,7 @@ build-backend = "hatchling.build"
 
 [tool.uv.sources]
 qml-essentials = { git = "https://github.com/cirKITers/qml-essentials", rev = "07d325fefb6fab1b84eb32ccb16e42dcbe4994ea" }
+phasespace-jax = { git = "https://github.com/stroblme/phasespace-jax", rev = "983a6b2ef25962c4077a4fcb69d0a25e70e23bfc" }
 
 [dependency-groups]
 dev = ["ruff>=0.12", "ty", "pytest>=8"]
@@ -47,4 +47,4 @@ python-version = "3.12"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["gen: requires phasespace/TensorFlow"]
+markers = ["gen: runs phase-space generation (slower, and enables JAX x64)"]
