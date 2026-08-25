@@ -5,6 +5,7 @@ The goal is to reconstruct intermediate decay products based on simulated decay 
 
 Tech stack:
 - qml-essentials : for quantum Fourier models and JAX based simulation
+- phasespace-jax : JAX port of phasespace, for decay event generation
 - JAX : array computation and autodiff
 - Flax : neural network modules
 - Optax : optimizer and training loop
@@ -44,7 +45,7 @@ partiqledtr/
 ├── models/     elementwise residual front end · NRI message-passing GNN
 │               · linear control · QFM constellation (phase 3)
 ├── metrics.py  per-element / Perfect-LCAG / valid-tree rate, class weights
-├── analysis.py g-purity closed forms · DLA pre-check
+├── analysis.py g-purity (closed-form + exact) · DLA pre-check · encoding comparison
 ├── train.py    loss, training loop, checkpoints, fit/evaluate nodes
 └── pipeline.py the two Fluksio flows
 ```
@@ -57,8 +58,10 @@ cross-particle structure can only come from the quantum part. Readout is per-qub
 Pauli-Z plus a shared linear head, so nothing scales exponentially.
 
 Two flows: `generate` runs the phase-space simulation once, `train` consumes its
-artifacts and is the part a sweep repeats. `data/generation.py` is the only module
-that imports TensorFlow, so nothing else pays that import.
+artifacts and is the part a sweep repeats. Fluksio caches node results on their
+inputs, so re-running an unchanged stage is nearly free -- though a cached run
+replays no metric series, so pass `--no-cache` when a training curve matters
+(`NOTEPAD.md`).
 
 **Read `RESEARCH.md` before designing runs** -- the measurements there revise one of
 the premises below (see *Theoretical Motivation*), and `DECISIONS.md` records why
@@ -79,10 +82,13 @@ fluksio run generate --seed 0 --wait
 ```
 
 Check the `stats` output before going further: `split_integrity_ok` must be true,
-and the angle-marginal figures are the phase-1 evidence.
+and the angle-marginal figures are the phase-1 evidence. `encoding_report` prices
+each candidate encoding in g-purity, which is the measurement behind `RESEARCH.md`
+§1 -- read it before choosing an arm.
 
-**2. Train.** Artifact references are JSON on the command line, so the Python API
-is the practical way to hand a dataset to a training run:
+**2. Train.** A dataset artifact is named on the command line by its digest, or by
+the run that made it (`@run:<id>.dataset_train`); `dataset_meta` is a `json` input,
+so it still has to be passed inline. The Python API hands both over directly:
 
 ```python
 from partiqledtr.pipeline import generate, train
@@ -107,7 +113,9 @@ The arms, all selected through flow inputs:
 | `ansatz` | `XY_Brickwork`, `Matchgate`, `Circuit_19` | quantum arm only |
 | `frontend` | `none`, `mlp` | `mlp` is the learned elementwise front end |
 | `whiten` | `false`, `true` | fixed isotropic preconditioning |
-| `encoding` | `angles`, `cartesian` | `cartesian` keeps `\|p\|`, needed by `qfm` |
+| `encoding` | `angles`, `cartesian`, `legacy` | `cartesian` keeps `\|p\|`, needed by `qfm` |
+| `angle_map` | `pair_polar`, `legacy` | pair with `encoding=legacy` for the clustered arm |
+| `n_layers` | int | data-reuploading depth of the quantum arm |
 | `dim`, `n_blocks` | ints | GNN width/depth; use for parameter matching |
 
 The ROADMAP's three phase-4 input arms are `frontend=none, whiten=false` (raw),
@@ -140,19 +148,38 @@ for r in runs:
 ```
 
 `fluksio sweep train --param ansatz=A,B --param frontend=none,mlp` is the CLI
-equivalent and takes a grid directly, but every required input still has to be
-given, and an artifact one has to be spelled as JSON (`NOTEPAD.md`).
+equivalent and takes the grid directly; the dataset inputs come along as digests
+(`--dataset_train sha256:...`) with `dataset_meta` inline.
 
 **4. Baselines.** Same `train.submit`, with `model="gnn", dim=64` for the
-unconstrained GNN, `model="gnn", dim=8, n_blocks=1` for one parameter-matched to
-the quantum arm (`n_params` is recorded in `final_metrics`), and `model="mlp"`
-for the "MLP does everything" control. For a clean cross-arm comparison, also run
-the matched GNN on `encoding="cartesian"`, the features the quantum arm sees.
+unconstrained GNN, `model="mlp"` for the "MLP does everything" control, and a
+parameter-matched GNN whose width is *computed* rather than guessed:
+
+```python
+from functools import partial
+from partiqledtr.models import matched_dim, n_params
+from partiqledtr.train import build_model
+
+quantum = build_model(model="qfm", frontend="none", n_features=4, n_classes=4)
+build = partial(build_model, model="gnn", frontend="none", n_features=4, n_classes=4)
+dim = matched_dim(n_params(quantum), build, n_blocks=3)  # 70 params -> dim=1
+```
+
+At the quantum arm's ~70 parameters the matched classical GNN is necessarily
+width-1, which is part of the comparison rather than a problem with it.
+`n_params` is recorded in `final_metrics` either way. For a clean cross-arm
+comparison, also run the matched GNN on `encoding="cartesian"`, the features the
+quantum arm sees.
+
+**5. The clustered control arm.** `--encoding legacy --angle_map legacy` runs
+partiqlegan's `p * E * pi` product encoding, whose angles collapse toward zero.
+That is the input regime where the unflattening rescue prediction is falsifiable;
+neither of the new encodings lands there (see `RESEARCH.md` §1).
 
 Everything is also usable without an engine: the nodes are plain functions, so
 `assemble_dataset(...)` and `train_model(...)` can be called directly, which is
 what the test suite does. Run the tests with `uv run pytest` (`-m "not gen"`
-skips the ones needing TensorFlow).
+skips the ones that run phase-space generation).
 
 ## Theoretical Motivation
 
