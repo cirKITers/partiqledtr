@@ -604,6 +604,10 @@ def train_model(
         Port("whiten", "bool"),
         Port("dla_report", "json"),
     ],
+    # Yields per epoch, which resets the watchdog -- but the *first* epoch also pays
+    # for jit compilation, so the limit has to cover that rather than a steady one
+    # (``DECISIONS.md`` D89).
+    timeout=2 * 60 * 60,
     provides=[
         Port("epoch", "int", stream=True),
         Port("train_loss", "float", stream=True),
@@ -709,6 +713,8 @@ def fit(
 
 
 @node(
+    # Reconstructs a tree per test event in Python, silent throughout (D89).
+    timeout=43200,
     requires=[
         Port("checkpoint", "artifact"),
         Port("dataset_test", "artifact"),
