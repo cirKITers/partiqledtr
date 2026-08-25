@@ -28,7 +28,7 @@ from partiqledtr.data.features import (
     normalization_scales,
     pad_events,
 )
-from partiqledtr.data.generation import generate_events
+from partiqledtr.data.generation import UngeneratableTopologyError, generate_events
 from partiqledtr.data.lcag import shuffle_leaves, topology_to_lcag
 from partiqledtr.data.topology import canonical_form, count_fsps, sample_topologies, shape_form
 
@@ -67,6 +67,8 @@ def assemble_dataset(
     test_frac: float = 0.1,
     isp_weight: float = 1.0,
     n_groups: int = 3,
+    probe_events: int = 32,
+    probe_draws: int = 2_000_000,
 ) -> tuple[dict[str, dict[str, np.ndarray]], dict[str, Any]]:
     """Sample topologies, generate events and assemble the three dataset splits.
 
@@ -86,6 +88,11 @@ def assemble_dataset(
         test_frac: Fraction of a group-A topology's events used for testing.
         isp_weight: Relative weight of the intermediate-state mass pool.
         n_groups: Number of topology groups; 3 gives the known/unknown scheme.
+        probe_events: Events a candidate topology must produce within
+            ``probe_draws`` to be kept (``DECISIONS.md`` D90).
+        probe_draws: Draw budget of that probe. Scaled so the probe costs a small
+            fraction of the real generation while still resolving the acceptance
+            rates that matter.
 
     Returns:
         A ``(splits, meta)`` pair. ``splits`` maps each split name to a dict of
@@ -110,6 +117,21 @@ def assemble_dataset(
         raise ValueError(f"n_groups must be between 1 and {len(_GROUP_SPLITS)}, got {n_groups}")
 
     rng = np.random.default_rng(seed)
+
+    def viable(topology: dict) -> bool:
+        """Whether a topology can be sampled inside the per-topology draw budget.
+
+        A decay whose daughters nearly saturate the parent mass has almost no phase
+        space, so unweighting rejects nearly every draw and generation cannot finish
+        (``DECISIONS.md`` D90). Probing costs a fraction of the real generation and
+        keeps the rejection inside the sampler, where shape uniqueness is tracked.
+        """
+        try:
+            generate_events(topology, probe_events, seed, max_draws=probe_draws)
+        except UngeneratableTopologyError:
+            return False
+        return True
+
     groups = sample_topologies(
         rng,
         n_groups=n_groups,
@@ -118,6 +140,7 @@ def assemble_dataset(
         max_fsps=max_fsps,
         max_depth=max_depth,
         isp_weight=isp_weight,
+        is_viable=viable,
     )
 
     parts: dict[str, list[dict[str, np.ndarray]]] = {name: [] for name in SPLITS}
@@ -237,6 +260,11 @@ def load_split(ref: dict[str, Any]) -> dict[str, np.ndarray]:
         Port("dataset_test", "artifact"),
         Port("dataset_meta", "json"),
     ],
+    # Phase-space generation is silent by nature -- one artifact at the end, nothing
+    # to stream in between -- and its runtime scales with the request, so the
+    # engine's silence watchdog has to be told that quiet means working here
+    # (``DECISIONS.md`` D89).
+    timeout=24 * 60 * 60,
 )
 def build_dataset(
     *,
@@ -369,6 +397,8 @@ def dataset_statistics(
 
 
 @node(
+    # Silent until every figure is rendered (D89).
+    timeout=1800,
     requires=[
         Port("dataset_train", "artifact"),
         Port("dataset_val", "artifact"),

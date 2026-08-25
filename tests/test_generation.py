@@ -132,3 +132,37 @@ def test_rejects_invalid_arguments():
         generate_events(TOPOLOGY, 0, seed=0)
     with pytest.raises(ValueError, match="no children"):
         generate_events({"name": "r", "mass": 1.0, "children": []}, 10, seed=0)
+
+
+def test_generation_gives_up_on_a_budget_rather_than_grinding():
+    """The draw budget is what makes "ungeneratable" a decision the caller can act on.
+
+    Some sampled decays leave so little phase space that unweighting rejects
+    essentially every draw, and generation cannot finish at any round count. The
+    remedy is to sample a different topology, so the failure has to be a named
+    exception raised inside a bounded amount of work rather than an open-ended
+    grind (``DECISIONS.md`` D90). Tested through the budget, which is deterministic,
+    rather than through a pathological decay, whose rate depends on phasespace.
+    """
+    from partiqledtr.data.generation import UngeneratableTopologyError, generate_events
+
+    with pytest.raises(UngeneratableTopologyError, match="acceptance rate"):
+        generate_events(TOPOLOGY, 5000, seed=0, max_draws=2000)
+
+    # ... and the same request finishes when the budget allows it.
+    events = generate_events(TOPOLOGY, 50, seed=0, max_draws=2_000_000)
+    assert len(next(iter(events.values()))) == 50
+
+
+def test_viability_probe_keeps_generation_finishing():
+    """assemble_dataset must not hand the generator a topology it cannot sample (D90).
+
+    Before the probe this raised part-way through a dataset, after minutes of work.
+    """
+    from partiqledtr.data.dataset import assemble_dataset
+
+    splits, meta = assemble_dataset(
+        seed=0, n_topologies=4, n_events_per_topology=40, min_fsps=3, max_fsps=6
+    )
+    assert all(len(split["lcag"]) > 0 for split in splits.values())
+    assert meta["counts"]["train"] > 0

@@ -177,12 +177,19 @@ def fit_whitening(
 
 
 @node(
-    requires=[Port("dataset_train", "artifact"), Port("whitening_seed", "int")],
+    # Rejection sampling over the training split, silent throughout (D89).
+    timeout=3600,
+    requires=[
+        Port("dataset_train", "artifact"),
+        Port("whitening_seed", "int"),
+        Port("encoding", "str"),
+    ],
     provides=[Port("whitening", "artifact"), Port("whitening_report", "json")],
 )
 def whitening_rotation(
     *,
     dataset_train: dict[str, Any],
+    encoding: str = "cartesian",
     whitening_seed: int = 0,
     max_draws: int = 200,
     n_pairs: int = 4096,
@@ -191,6 +198,11 @@ def whitening_rotation(
 
     Args:
         dataset_train: Training split artifact reference.
+        encoding: The feature encoding the rotation will be *applied* to. It has to
+            be the one the model trains on: a rotation accepted on one encoding's
+            four-vectors says nothing about another's, and fitting on ``cartesian``
+            while training on ``legacy`` measurably lowered the purity it was meant
+            to raise (``DECISIONS.md`` D91).
         whitening_seed: Seed for the rotation draws and the pair sampling. Its own
             port rather than the run seed, so the acceptance rate can be swept
             without also re-seeding the model.
@@ -200,11 +212,18 @@ def whitening_rotation(
     Returns:
         The rotation as an artifact and the acceptance report.
     """
-    from partiqledtr.data.dataset import load_split
+    from partiqledtr.data.dataset import ENCODINGS, load_split
 
+    if encoding not in ENCODINGS:
+        raise ValueError(f"unknown encoding {encoding!r}; valid encodings are {list(ENCODINGS)}")
+    if encoding == "angles":
+        raise ValueError(
+            "the whitening arm rotates four-vectors, so it needs 'cartesian' or "
+            "'legacy'; the 'angles' encoding drops |p| (D56)"
+        )
     split = load_split(dataset_train)
     rotation, report = fit_whitening(
-        split["features_cartesian"],
+        split[f"features_{encoding}"],
         split["n_fsps"],
         seed=whitening_seed,
         max_draws=max_draws,
@@ -214,5 +233,5 @@ def whitening_rotation(
     np.savez(buffer, allow_pickle=False, rotation=rotation)
     return {
         "whitening": fluksio.save_artifact(buffer.getvalue(), "whitening.npz"),
-        "whitening_report": report,
+        "whitening_report": {**report, "encoding": encoding},
     }

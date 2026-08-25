@@ -319,6 +319,8 @@ def encoding_purity(
 
 
 @node(
+    # One purity pass per encoding arm, silent throughout (D89).
+    timeout=1800,
     requires=[Port("dataset_train", "artifact")],
     provides=[Port("encoding_report", "json")],
 )
@@ -470,6 +472,8 @@ def dla_check(
 
 
 @node(
+    # Circuit_19's Lie closure is slow and silent (D89).
+    timeout=1800,
     requires=[Port("ansatz", "str")],
     provides=[Port("dla_report", "json")],
 )

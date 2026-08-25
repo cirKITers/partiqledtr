@@ -19,6 +19,8 @@ deviations:
   offline seed scan (DECISIONS.md D15).
 """
 
+from collections.abc import Callable
+
 import numpy as np
 
 # Intermediate- and final-state particle mass pools, descending. Physics identity is the
@@ -177,6 +179,7 @@ def sample_topologies(
     max_fsps: int = 8,
     max_depth: int = 4,
     isp_weight: float = 1.0,
+    is_viable: Callable[[dict], bool] | None = None,
 ) -> list[list[dict]]:
     """Draw pairwise non-isomorphic topologies, grouped for the known/unknown split.
 
@@ -208,6 +211,10 @@ def sample_topologies(
         max_fsps: Largest final-state particle count.
         max_depth: Number of levels counting the root as level 1.
         isp_weight: Relative weight of the intermediate-state pool.
+        is_viable: Optional extra predicate a candidate must satisfy. Injected
+            rather than imported so this module stays free of the generator: the
+            caller uses it to reject topologies whose phase-space acceptance rate
+            is too low to sample (``DECISIONS.md`` D90).
 
     Returns:
         ``n_groups`` lists of ``per_group`` topologies, all pairwise non-isomorphic
@@ -235,7 +242,14 @@ def sample_topologies(
     flat: list[dict] = []
     for i in range(n_groups * per_group):
         topology = _draw_unseen_shape(
-            rng, i, span, seen, min_fsps=min_fsps, max_depth=max_depth, isp_weight=isp_weight
+            rng,
+            i,
+            span,
+            seen,
+            min_fsps=min_fsps,
+            max_depth=max_depth,
+            isp_weight=isp_weight,
+            is_viable=is_viable,
         )
         seen.add(shape_form(topology))
         flat.append(topology)
@@ -257,6 +271,7 @@ def _draw_unseen_shape(
     min_fsps: int,
     max_depth: int,
     isp_weight: float,
+    is_viable: Callable[[dict], bool] | None = None,
 ) -> dict:
     """Draw a topology whose shape is not in ``seen``, preferring this slot's FSP count.
 
@@ -270,7 +285,9 @@ def _draw_unseen_shape(
                 rng, n_fsps=n_fsps, max_depth=max_depth, isp_weight=isp_weight
             )
             # Keyed on the unlabelled shape: that is what the LCAG label sees (D82).
-            if shape_form(topology) not in seen:
+            if shape_form(topology) in seen:
+                continue
+            if is_viable is None or is_viable(topology):
                 return topology
     raise ValueError(
         f"no unseen topology shape at any leaf count in "
