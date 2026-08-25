@@ -19,6 +19,7 @@ from __future__ import annotations
 import inspect
 import io
 import json
+import math
 from collections.abc import Generator, Iterator
 from pathlib import Path
 from typing import Any
@@ -48,6 +49,7 @@ __all__ = [
     "evaluate",
     "evaluate_split",
     "fit",
+    "jsonable",
     "lcag_loss",
     "npz_config",
     "npz_to_state",
@@ -58,6 +60,10 @@ __all__ = [
 #: Reserved npz entry holding the model configuration. Parameter paths are ``'/'``
 #: joins of Python identifiers and list indices, so ``'#'`` cannot collide with one.
 CONFIG_KEY = "#config"
+
+#: Offset separating the front end's rng stream from the model's, so attaching one
+#: does not re-initialise the other (``DECISIONS.md`` D84).
+_FRONTEND_SEED_OFFSET = 1 << 20
 
 
 def lcag_loss(logits: jax.Array, labels: jax.Array, weights: jax.Array) -> jax.Array:
@@ -119,6 +125,7 @@ def build_model(
     seed: int = 0,
     ansatz: str = "XY_Brickwork",
     n_layers: int = 2,
+    angle_map: str = "pair_polar",
     whitening: Any = None,
 ) -> nnx.Module:
     """Construct a model and its optional front end from the registry strings.
@@ -138,7 +145,10 @@ def build_model(
         seed: Seed of the parameter-initialisation rng.
         ansatz: Ansatz arm of the quantum model.
         n_layers: Data-reuploading depth of the quantum model.
+        angle_map: Four-vector-to-angle map of the quantum model, a key of
+            :data:`partiqledtr.models.qfm.ANGLE_MAPS`.
         whitening: Optional fixed rotation for the quantum model's whitening arm.
+            A nested list is accepted, which is how a checkpoint carries it (D81).
 
     Returns:
         The constructed model, with the front end already attached.
@@ -151,13 +161,24 @@ def build_model(
     if frontend not in FRONTENDS:
         raise ValueError(f"unknown frontend {frontend!r}; valid frontends are {sorted(FRONTENDS)}")
 
+    # Two independent streams. Built from one, the front end's own draws would shift
+    # every later draw, so a model *with* a front end would not merely gain the front
+    # end -- its whole parameter set would be re-initialised, and the phase-4
+    # raw-versus-learned comparison would differ by an initialisation too (D84).
     rngs = nnx.Rngs(seed)
+    frontend_rngs = nnx.Rngs(seed + _FRONTEND_SEED_OFFSET)
     frontend_cls = FRONTENDS[frontend]
     cls = MODELS[model]
     # ``signature(cls)`` would resolve to the NNX metaclass' ``(*args, **kwargs)``,
     # so the check has to read ``__init__`` directly (DECISIONS.md D62).
     accepted = inspect.signature(cls.__init__).parameters
-    optional = {"n_blocks": n_blocks, "ansatz": ansatz, "n_layers": n_layers, "seed": seed}
+    optional = {
+        "n_blocks": n_blocks,
+        "ansatz": ansatz,
+        "n_layers": n_layers,
+        "angle_map": angle_map,
+        "seed": seed,
+    }
     if whitening is not None:
         optional["whitening"] = whitening
     extra = {name: value for name, value in optional.items() if name in accepted}
@@ -168,10 +189,36 @@ def build_model(
         n_features,
         n_classes,
         dim=dim,
-        frontend=None if frontend_cls is None else frontend_cls(frontend_features, rngs=rngs),
+        frontend=(
+            None if frontend_cls is None else frontend_cls(frontend_features, rngs=frontend_rngs)
+        ),
         rngs=rngs,
         **extra,
     )
+
+
+def jsonable(value: Any) -> Any:
+    """Replace every non-finite float with ``None``, however deeply it sits.
+
+    JSON cannot spell NaN or infinity, and Fluksio's ports reject both rather than
+    letting one leave the engine as a response nobody can parse. A metric over an
+    empty subset is legitimately undefined, though -- an ``unknown`` split with no
+    events, say -- so it travels as ``None``, which says the same thing and does
+    survive the wire (``DECISIONS.md`` D75).
+
+    Args:
+        value: Any json-shaped structure.
+
+    Returns:
+        The same structure with non-finite floats replaced by ``None``.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [jsonable(item) for item in value]
+    return value
 
 
 def _flat_keys(state: Any) -> list[str]:
@@ -331,8 +378,8 @@ def evaluate_split(
 
     Returns:
         ``accuracy``, ``accuracy_primary``, ``perfect`` and ``perfect_primary``, plus
-        ``loss`` if ``weights`` was given and ``valid_tree`` if ``valid_trees``. Every
-        entry is NaN for an empty split.
+        ``loss`` if ``weights`` was given and ``valid_tree``/``valid_tree_strict`` if
+        ``valid_trees``. Every entry is NaN for an empty split.
     """
     features, mask, labels = _split_arrays(split, encoding)
     class_weight = None if weights is None else jnp.asarray(weights, dtype=jnp.float32)
@@ -364,6 +411,9 @@ def evaluate_split(
         metrics["loss"] = total / n_scored if n_scored else float("nan")
     if valid_trees:
         metrics["valid_tree"] = valid_tree_rate(predictions, labels)
+        # The strict variant is the primary number; the lenient one is kept for
+        # comparability with the prior papers (``DECISIONS.md`` D85).
+        metrics["valid_tree_strict"] = valid_tree_rate(predictions, labels, strict=True)
     return metrics
 
 
@@ -383,6 +433,7 @@ def train_model(
     lr: float = 1e-3,
     ansatz: str = "XY_Brickwork",
     n_layers: int = 2,
+    angle_map: str = "pair_polar",
     whitening: Any = None,
     n_purity_events: int = 64,
 ) -> Generator[dict[str, float], None, tuple[nnx.Module, dict[str, Any]]]:
@@ -413,6 +464,9 @@ def train_model(
         lr: Adam learning rate.
         ansatz: Ansatz arm of the quantum model; ignored by the classical ones.
         n_layers: Data-reuploading depth of the quantum model.
+        angle_map: Four-vector-to-angle map of the quantum model. Pair it with the
+            matching ``encoding``: ``"legacy"`` with ``"legacy"``, otherwise
+            ``"cartesian"``.
         whitening: Optional fixed ``(4, 4)`` rotation for the whitening arm.
         n_purity_events: Validation events the g-purity is measured on each epoch.
 
@@ -447,8 +501,14 @@ def train_model(
         "n_blocks": int(n_blocks),
         "ansatz": ansatz,
         "n_layers": int(n_layers),
+        "angle_map": angle_map,
+        # In the config, not beside it: the rotation is part of what the model *is*,
+        # and it is not an nnx.Param, so a checkpoint that did not carry it would
+        # rebuild the whitened arm as the raw one and score it on the wrong angles
+        # (D81). 16 floats travel fine as json.
+        "whitening": None if whitening is None else np.asarray(whitening).tolist(),
     }
-    module = build_model(**config, seed=seed, whitening=whitening)
+    module = build_model(**config, seed=seed)
     optimizer = nnx.Optimizer(module, optax.adam(lr), wrt=nnx.Param)
     weights = jnp.asarray(class_weights(labels, n_classes), dtype=jnp.float32)
 
@@ -456,10 +516,15 @@ def train_model(
     # the sample. Only the arms that encode quantum states expose g_purity.
     measure_purity = getattr(module, "g_purity", None)
     purity_batch = None
+    initial_purity = float("nan")
     if measure_purity is not None:
         val_features, val_mask, _ = _split_arrays(val, encoding)
         take = slice(0, min(n_purity_events, len(val_mask)))
         purity_batch = (jnp.asarray(val_features[take]), jnp.asarray(val_mask[take]))
+        # Epoch 0, before any step. The front end starts as the identity, so this is
+        # also the raw arm's level -- without it a learned-front-end trajectory has
+        # no anchor and its first plotted point is already one epoch of training old.
+        initial_purity = float(measure_purity(*purity_batch))
 
     rng = np.random.default_rng(seed)
     train_loss = float("nan")
@@ -484,14 +549,18 @@ def train_model(
         )
         if measure_purity is not None and purity_batch is not None:
             val_metrics["g_purity"] = float(measure_purity(*purity_batch))
-        yield {
+        record = {
             "epoch": epoch,
             "train_loss": train_loss,
             "val_loss": val_metrics["loss"],
             "val_accuracy": val_metrics["accuracy"],
             "val_perfect": val_metrics["perfect"],
-            "g_purity": val_metrics.get("g_purity", float("nan")),
         }
+        # Omitted rather than NaN when the model encodes no quantum state: a float
+        # port accepts neither a non-finite value nor None (``DECISIONS.md`` D75).
+        if "g_purity" in val_metrics:
+            record["g_purity"] = val_metrics["g_purity"]
+        yield record
 
     final = {
         "config": {"encoding": encoding, **config},
@@ -503,6 +572,14 @@ def train_model(
         "train_loss": train_loss,
         **{f"val_{name}": value for name, value in val_metrics.items()},
     }
+    if purity_batch is not None:
+        final["g_purity_initial"] = initial_purity
+        # The closed form is the theory's object; this is the state the circuit
+        # actually prepares. Reporting both is what lets a claim name which one it
+        # is about (D78). Measured once, at the end: it is not jittable.
+        exact = getattr(module, "g_purity_exact", None)
+        if exact is not None:
+            final["g_purity_exact"] = exact(*purity_batch)
     return module, final
 
 
@@ -521,6 +598,8 @@ def train_model(
         Port("batch_size", "int"),
         Port("lr", "float"),
         Port("ansatz", "str"),
+        Port("n_layers", "int"),
+        Port("angle_map", "str"),
         Port("whitening", "artifact"),
         Port("whiten", "bool"),
         Port("dla_report", "json"),
@@ -551,10 +630,12 @@ def fit(
     batch_size: int = 64,
     lr: float = 1e-3,
     ansatz: str = "XY_Brickwork",
+    n_layers: int = 2,
+    angle_map: str = "pair_polar",
     whitening: dict[str, Any] | None = None,
     whiten: bool = False,
     dla_report: dict[str, Any] | None = None,
-    n_layers: int = 2,
+    n_purity_events: int = 64,
 ) -> Generator[dict[str, float], None, dict[str, Any]]:
     """Train a model and store its checkpoint as a run artifact.
 
@@ -573,6 +654,9 @@ def fit(
         batch_size: Events per optimisation step.
         lr: Adam learning rate.
         ansatz: Ansatz arm of the quantum model.
+        n_layers: Data-reuploading depth of the quantum model.
+        angle_map: Four-vector-to-angle map of the quantum model; pair ``"legacy"``
+            with the ``"legacy"`` encoding.
         whitening: Artifact reference to the fixed whitening rotation fitted by
             :func:`partiqledtr.data.whitening.whitening_rotation`. Always wired in
             the flow; applied only when ``whiten`` is set.
@@ -584,7 +668,7 @@ def fit(
             :func:`partiqledtr.analysis.dla_report`. Not used by the fit itself --
             requiring it here is what makes the flow record the arm's algebra
             before any training happens, as the ROADMAP asks.
-        n_layers: Data-reuploading depth of the quantum model.
+        n_purity_events: Validation events the g-purity is measured on each epoch.
 
     Yields:
         The per-epoch metrics of :func:`train_model`, one message per declared stream.
@@ -611,14 +695,16 @@ def fit(
         lr=lr,
         ansatz=ansatz,
         n_layers=n_layers,
+        angle_map=angle_map,
         whitening=rotation,
+        n_purity_events=n_purity_events,
     )
     final["whitened"] = rotation is not None
     final["dla_report"] = dla_report
     payload = state_to_npz(module, final["config"])
     return {
         "checkpoint": fluksio.save_artifact(payload, "checkpoint.npz"),
-        "final_metrics": final,
+        "final_metrics": jsonable(final),
     }
 
 
@@ -665,17 +751,21 @@ def evaluate(
     group = np.asarray(dataset_meta["topology_group"])
     known = group[split["topology_id"]] == 0
     subsets = {"overall": np.ones_like(known), "known": known, "unknown": ~known}
-    return {
-        "test_metrics": {
-            name: {
-                "n_events": int(selection.sum()),
-                **evaluate_split(
-                    module,
-                    {key: array[selection] for key, array in split.items()},
-                    encoding=encoding,
-                    valid_trees=True,
-                ),
+    # A subset with no events scores NaN, which no port accepts; `jsonable` turns
+    # those into None so "not measured" still travels (DECISIONS.md D75).
+    return jsonable(
+        {
+            "test_metrics": {
+                name: {
+                    "n_events": int(selection.sum()),
+                    **evaluate_split(
+                        module,
+                        {key: array[selection] for key, array in split.items()},
+                        encoding=encoding,
+                        valid_trees=True,
+                    ),
+                }
+                for name, selection in subsets.items()
             }
-            for name, selection in subsets.items()
         }
-    }
+    )

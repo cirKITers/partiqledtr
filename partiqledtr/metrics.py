@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from partiqledtr.data.lcag import InvalidLCAGError, lcag_to_adjacency
+from partiqledtr.data.lcag import InvalidLCAGError, lcag_roundtrip, lcag_to_adjacency
 
 __all__ = [
     "IGNORE",
@@ -106,7 +106,9 @@ def perfect_lcag_rate(
     return float(correct.all(axis=(1, 2))[scored_events].mean())
 
 
-def _reconstructs(prediction: np.ndarray, labels: np.ndarray, ignore_disconnected: bool) -> bool:
+def _reconstructs(
+    prediction: np.ndarray, labels: np.ndarray, ignore_disconnected: bool, strict: bool
+) -> bool:
     """Whether one predicted LCAG describes a realisable decay tree."""
     scored = _scored(labels, IGNORE)
     if not scored.any() or not prediction[scored].any():
@@ -122,12 +124,23 @@ def _reconstructs(prediction: np.ndarray, labels: np.ndarray, ignore_disconnecte
     np.fill_diagonal(keep, False)
 
     rows = keep.any(axis=0)
-    if rows.sum() < 2:
+    if strict:
+        # Every scored leaf has to survive. Otherwise a prediction that calls all
+        # but two leaves disconnected reduces to a trivially valid two-leaf tree,
+        # and nothing in the loss discourages that: class 0 is never a target, so
+        # it carries weight 0 (D49, D85).
+        if not np.array_equal(rows, scored.any(axis=0)):
+            return False
+    elif rows.sum() < 2:
         return False
 
     candidate = prediction[np.ix_(rows, rows)].copy()
     np.fill_diagonal(candidate, 0)
     try:
+        if strict:
+            # Off-diagonal only: the diagonal carries the ignore label, not a level.
+            implied = np.triu(lcag_roundtrip(candidate), 1)
+            return bool(np.array_equal(implied, np.triu(candidate, 1)))
         lcag_to_adjacency(candidate)
     except InvalidLCAGError:
         return False
@@ -135,7 +148,11 @@ def _reconstructs(prediction: np.ndarray, labels: np.ndarray, ignore_disconnecte
 
 
 def valid_tree_rate(
-    predictions: np.ndarray, labels: np.ndarray, *, ignore_disconnected: bool = True
+    predictions: np.ndarray,
+    labels: np.ndarray,
+    *,
+    ignore_disconnected: bool = True,
+    strict: bool = False,
 ) -> float:
     """Fraction of predicted LCAGs that reconstruct into a valid tree.
 
@@ -143,12 +160,19 @@ def valid_tree_rate(
     definition of validity, so this reuses
     :func:`partiqledtr.data.lcag.lcag_to_adjacency`.
 
-    This is an **optimistic** measure, and reporting it without that caveat would
-    overstate the result. Reconstruction is greedy, so a matrix that is consistent
-    with no single tree can still reduce to one: on random symmetric matrices,
-    roughly 70% of the accepted ones do not reproduce their own input LCAG. The
-    definition is kept as-is because it is the one the reconstruction papers used
-    and the numbers have to stay comparable (``DECISIONS.md`` D42).
+    The default is an **optimistic** measure and has to be reported as one. It is
+    permissive in two separate ways (``DECISIONS.md`` D42, D85): reconstruction is
+    greedy, so a matrix consistent with no single tree can still reduce to one --
+    on random symmetric matrices roughly 70% of the accepted ones do not reproduce
+    their own input LCAG -- and dropping the leaves a prediction calls
+    disconnected means a prediction that keeps only a single pair scores a valid
+    tree, which nothing in the loss discourages because class 0 carries weight 0.
+    The lenient definition is kept as the default because it is the one the
+    reconstruction papers used and the numbers have to stay comparable.
+
+    ``strict=True`` closes both holes: every scored leaf must survive, and the
+    reconstructed tree must re-derive the very matrix it came from. Report it as
+    the primary number and the lenient one for comparability.
 
     Args:
         predictions: Integer class indices, shape ``(B, L, L)``.
@@ -156,6 +180,8 @@ def valid_tree_rate(
             padding mask.
         ignore_disconnected: Drop leaves the prediction marks as disconnected
             (class 0) before reconstructing, as baumbauen does.
+        strict: Require that no scored leaf is dropped and that the reconstructed
+            tree reproduces the predicted LCAG.
 
     Returns:
         Fraction of events that reconstruct, or NaN for an empty batch.
@@ -175,7 +201,8 @@ def valid_tree_rate(
         return float("nan")
 
     valid = [
-        _reconstructs(p, y, ignore_disconnected) for p, y in zip(predictions, labels, strict=True)
+        _reconstructs(p, y, ignore_disconnected, strict)
+        for p, y in zip(predictions, labels, strict=True)
     ]
     return float(np.mean(valid))
 

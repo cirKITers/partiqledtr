@@ -12,7 +12,29 @@ Two things live here, both recorded/tracked around training rather than trained:
    O(n) closed form per DLA.  Ported from
    ``reference/unflattening/unflattening/utils/purity.py``.
 
-2. **DLA pre-check** -- :func:`dla_check` records, per ansatz arm and before any
+   **Which angles go in (DECISIONS.md D78).**  The closed forms describe the
+   state *entering the first trainable block*, which is the scope the
+   unflattening manuscript claims for them under re-uploading: later encoding
+   layers act on parameter-dependent entangled states and are not product
+   states at all.  So the argument is the encoded angle :math:`u` itself, never
+   :math:`L u`.  Everything that reports a closed-form purity -- this module,
+   :meth:`partiqledtr.models.qfm.QFMConstellation.g_purity` and the whitening
+   acceptance test -- therefore uses the same convention, and a purity is a
+   property of the *encoded angle distribution*: data plus encoding, not the
+   trained circuit.
+
+2. **Exact g-purity** -- :func:`g_purity_exact` sums
+   :math:`\langle\psi|B|\psi\rangle^2` over the DLA basis of the *actual*
+   statevector the circuit prepares, parameters and all.  At ``n_qubits = 4``
+   the basis has 12/28/255 words and the state 16 amplitudes, so it is cheap.
+   It is the honest counterpart of the closed form: the two agree exactly in
+   the clustered limit (where every encoding rotation tends to the identity and
+   :math:`P_{\mathfrak g}` is Ad-invariant under :math:`e^{\mathfrak g}`) and
+   diverge at generic angles, because qml-essentials orders each layer
+   *ansatz first, then encoding*.  Reporting both is what lets a claim say
+   which object it is about.
+
+3. **DLA pre-check** -- :func:`dla_check` records, per ansatz arm and before any
    training, the DLA dimension and the number of Z-only (diagonal) basis words.
    The latter is the floored/floor-free certificate: diagonal words have
    expectation 1 on the clustered-angle limit :math:`\theta \to 0`, so their
@@ -39,15 +61,20 @@ the experiment):
 The phase-5 spectrum/FCC instrumentation (fourier-fingerprints) is not here yet.
 """
 
-from collections.abc import Callable
+import functools
+from collections.abc import Callable, Sequence
+from typing import Any
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from fluksio import Port, node
+from qml_essentials.algebra import g_purity_from_basis, lie_closure_paulis
 from qml_essentials.ansaetze import Ansaetze
 from qml_essentials.operations import PauliWord
 
-#: Ansatz arms of ROADMAP phase 3, in the order they are reported.
+#: Ansatz arms of ROADMAP phase 3, in the order they are reported. The single
+#: definition: :mod:`partiqledtr.models.qfm` imports it rather than repeating it.
 ANSAETZE = ("XY_Brickwork", "Matchgate", "Circuit_19")
 
 _SINGLE_QUBIT_GENERATOR = {"RX": "X", "RY": "Y", "RZ": "Z"}
@@ -174,6 +201,149 @@ def offdiag_uniform_mean(n: int) -> float:
     return sum((n - d) * 2.0 ** -(d + 1) for d in range(1, n, 2))
 
 
+# --- exact g-purity ---------------------------------------------------------
+
+
+@functools.cache
+def dla_basis(ansatz: str, n_qubits: int) -> tuple[PauliWord, ...]:
+    """Return the DLA basis of an ansatz arm, cached across calls.
+
+    Args:
+        ansatz: One of :data:`ANSAETZE`.
+        n_qubits: Number of qubits, at least 2.
+
+    Returns:
+        The Lie-closure basis words of :func:`ansatz_generators`.
+    """
+    return tuple(lie_closure_paulis(ansatz_generators(ansatz, n_qubits)))
+
+
+def g_purity_exact(states: np.ndarray, basis: Sequence[PauliWord]) -> np.ndarray:
+    r"""Return the exact g-purity of statevectors against a DLA basis.
+
+    :math:`P_{\mathfrak g} = \sum_B \langle\psi|B|\psi\rangle^2`, evaluated on
+    the state the circuit *actually* prepares rather than on the product state
+    the closed forms describe.  Use it to check a closed-form series rather than
+    to replace it: the closed form is the theory's object (the encoded angle
+    distribution), this is the model's.
+
+    Args:
+        states: ``(..., 2 ** n)`` statevectors.
+        basis: DLA basis words, e.g. from :func:`dla_basis`.
+
+    Returns:
+        ``(...)`` g-purities.
+
+    Raises:
+        ValueError: If ``states`` is empty along its last axis.
+    """
+    states = np.asarray(states)
+    if states.shape[-1] < 2:
+        raise ValueError(f"expected statevectors on the last axis, got {states.shape}")
+    flat = states.reshape(-1, states.shape[-1])
+    values = np.array([g_purity_from_basis(row, basis) for row in flat], dtype=float)
+    return values.reshape(states.shape[:-1])
+
+
+# --- encoding comparison ----------------------------------------------------
+
+#: Feature encoding -> (dataset array, angle columns) for :func:`encoding_purity`.
+#: ``"angles"`` is the direct ``(theta, phi)`` arm; the other two go through an angle
+#: map in :mod:`partiqledtr.models.qfm`.
+_PURITY_ARMS = {
+    "pair_polar": ("features_cartesian", "pair_polar"),
+    "direct": ("features_angles", None),
+    "legacy": ("features_legacy", "legacy"),
+}
+
+
+def encoding_purity(
+    split: dict[str, np.ndarray], *, n_pairs: int = 4096, seed: int = 0
+) -> dict[str, dict[str, float]]:
+    """Compare what each feature encoding does to the g-purity of the encoded state.
+
+    This is the measurement behind the project's clearest empirical claim, and the
+    reason it lives here rather than in a notebook: the encoding a decay-tree model
+    picks decides whether its inputs land in the barren regime at all, and the
+    unflattening theory prices that decision in a currency both papers share
+    (``DECISIONS.md`` D88).
+
+    Three arms, all read off the same events:
+
+    * ``pair_polar`` -- the quantum arm's map, polar angles of ``(px, py)`` and
+      ``(pz, E)``;
+    * ``direct`` -- the ``(theta, phi)`` direction angles of the ``"angles"``
+      encoding, used as-is;
+    * ``legacy`` -- partiqlegan's ``p * E * pi`` product, the clustered arm (D80).
+
+    Args:
+        split: A loaded dataset split; needs the feature array of every arm plus
+            ``n_fsps``.
+        n_pairs: Edges sampled per arm.
+        seed: Seed of the edge sampling; the same edges are used for every arm, so
+            the arms differ only by their encoding.
+
+    Returns:
+        Per arm: ``mean_purity``, ``below_threshold`` (fraction of edges under
+        ``mu_n / 2``), ``threshold`` and ``uniform_mean``.
+
+    Raises:
+        ValueError: If ``split`` is missing an arm's feature array.
+    """
+    from partiqledtr.data.whitening import _sample_pairs
+    from partiqledtr.models.qfm import ANGLE_MAPS, N_QUBITS
+
+    n_fsps = np.asarray(split["n_fsps"])
+    # One edge sample shared by every arm: the arms must differ by their encoding
+    # and by nothing else.
+    events, pairs = _sample_pairs(np.random.default_rng(seed), n_fsps, n_pairs)
+    threshold = offdiag_uniform_mean(N_QUBITS) / 2.0
+
+    report: dict[str, dict[str, float]] = {}
+    for arm, (key, angle_map) in _PURITY_ARMS.items():
+        if key not in split:
+            raise ValueError(
+                f"split has no '{key}' array for arm {arm!r}; it holds {sorted(split)}"
+            )
+        features = jnp.asarray(np.asarray(split[key])[events])
+        angles = features[..., :2] if angle_map is None else ANGLE_MAPS[angle_map](features)
+        taken = jnp.take_along_axis(angles, jnp.asarray(pairs)[:, :, None], axis=1)
+        purity = np.asarray(g_purity_offdiag(taken.reshape(n_pairs, N_QUBITS)))
+        report[arm] = {
+            "mean_purity": float(purity.mean()),
+            "below_threshold": float((purity < threshold).mean()),
+            "threshold": threshold,
+            "uniform_mean": offdiag_uniform_mean(N_QUBITS),
+        }
+    return report
+
+
+@node(
+    requires=[Port("dataset_train", "artifact")],
+    provides=[Port("encoding_report", "json")],
+)
+def encoding_report(
+    *, dataset_train: dict[str, Any], n_pairs: int = 4096, encoding_seed: int = 0
+) -> dict[str, Any]:
+    """Record the encoding comparison of :func:`encoding_purity` for a dataset.
+
+    Args:
+        dataset_train: Training split artifact reference.
+        n_pairs: Edges sampled per arm.
+        encoding_seed: Seed of the edge sampling.
+
+    Returns:
+        The per-arm report under the ``encoding_report`` port.
+    """
+    from partiqledtr.data.dataset import load_split
+
+    return {
+        "encoding_report": encoding_purity(
+            load_split(dataset_train), n_pairs=n_pairs, seed=encoding_seed
+        )
+    }
+
+
 # --- DLA pre-check ----------------------------------------------------------
 
 
@@ -243,45 +413,6 @@ def ansatz_generators(ansatz: str, n_qubits: int) -> list[str]:
     return list(dict.fromkeys(words))
 
 
-def _lie_closure_capped(generators: list[str], max_dim: int) -> tuple[list[str], bool]:
-    """Return the Pauli-word Lie closure, stopped at ``max_dim`` words.
-
-    Args:
-        generators: Hermitian generator Pauli strings.
-        max_dim: Maximum number of basis words to collect.
-
-    Returns:
-        The basis Pauli strings and whether the cap stopped the search (in which
-        case the basis is a subset of the true closure).
-    """
-    # ponytail: duplicates qml_essentials.algebra.lie_closure_paulis purely to add
-    # the cap -- upstream grows the closure unconditionally, which is O(4**n) words
-    # and hangs well before n = 8. Upgrade path: a max_dim kwarg upstream, then
-    # delete this and call lie_closure_paulis.
-    n = len(generators[0])
-    basis = [PauliWord.from_pauli_string(s, list(range(n)), n) for s in generators]
-    seen = {word.to_pauli_string() for word in basis}
-    frontier = list(basis)
-    while frontier:
-        new: list[PauliWord] = []
-        pool = list(basis)
-        for a in frontier:
-            for b in pool:
-                if a.commutes_with(b):
-                    continue
-                product = a.compose(b)
-                string = product.to_pauli_string()
-                if string in seen:
-                    continue
-                seen.add(string)
-                basis.append(product)
-                new.append(product)
-                if len(basis) >= max_dim:
-                    return [w.to_pauli_string() for w in basis], True
-        frontier = new
-    return [w.to_pauli_string() for w in basis], False
-
-
 def dla_check(
     ansatz: str = "XY_Brickwork", n_qubits: int = 4, max_dim: int = 2000
 ) -> dict[str, str | int | float | bool]:
@@ -322,7 +453,10 @@ def dla_check(
         raise ValueError(
             f"max_dim={max_dim} is below the {len(generators)} generators of {ansatz!r}"
         )
-    words, capped = _lie_closure_capped(generators, max_dim)
+    # A result of exactly `max_dim` words means growth was stopped there, so the
+    # basis is partial and `dim_g` is a lower bound.
+    words = [word.to_pauli_string() for word in lie_closure_paulis(generators, max_dim=max_dim)]
+    capped = len(words) >= max_dim
     dim_su = 4**n_qubits - 1
     return {
         "ansatz": ansatz,

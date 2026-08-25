@@ -1,10 +1,9 @@
 """Fluksio flow declarations.
 
-Two flows rather than one, because Fluksio has no stage caching (``NOTEPAD.md``): a
-run always re-executes every node it contains. Generation runs phase-space simulation
-through TensorFlow and is expensive; training is the part an ablation sweep repeats.
-Splitting them means ``generate`` runs once and every ``train`` run consumes the
-artifact references it produced.
+Two flows rather than one. Fluksio caches node results on their inputs, so a merged
+flow would skip regeneration anyway, but the split still earns its place: generation
+and training have different parameter axes, generation is expensive and offline, and
+one dataset feeds many training runs.
 
     fluksio serve                                     # the engine, once
     fluksio sync partiqledtr                          # upload the flows
@@ -12,13 +11,18 @@ artifact references it produced.
     fluksio run train --dataset_train <ref> --dataset_val <ref> \
         --dataset_test <ref> --dataset_meta <ref> --model gnn --epochs 100
 
+``generate`` also runs ``encoding_report``, which prices each candidate encoding in
+g-purity (D88): whether a decay-tree model's inputs land in the barren regime at all
+is decided there, before any model exists, and the table is a result in its own right.
+
 The ``train`` flow also carries the phase-3/4 instrumentation. ``dla_report`` runs
 upstream of ``fit`` and its certificate is a *required* input there, so the arm's
 dynamical Lie algebra and floor count are recorded before any training happens --
 enforced by the flow's shape rather than by anyone remembering. ``whitening_rotation``
-fits the fixed isotropic preconditioning on the training split; the quantum arm uses
-it when ``frontend`` is left at ``"none"`` and it is wired in, and ignores it
-otherwise.
+fits the fixed isotropic preconditioning on the training split and records its
+acceptance report for *every* run; the model applies it only when ``whiten`` is set,
+independently of ``frontend`` -- ``frontend=mlp`` with ``whiten=true`` is a reachable
+(and deliberately runnable) cell.
 
 The nine-cell phase-4 study is nine runs of this one flow:
 
@@ -28,6 +32,10 @@ The nine-cell phase-4 study is nine runs of this one flow:
       done
     done
 
+The clustered control arm is the same flow with ``--encoding legacy --angle_map
+legacy``: partiqlegan's ``p * E * pi`` product, whose encoding angles collapse toward
+zero, which is where the unflattening rescue prediction is falsifiable (D80).
+
 Declarations only: the nodes live in :mod:`partiqledtr.data.dataset`,
 :mod:`partiqledtr.data.whitening`, :mod:`partiqledtr.analysis` and
 :mod:`partiqledtr.train`, and are wired by matching provides/requires names.
@@ -35,7 +43,7 @@ Declarations only: the nodes live in :mod:`partiqledtr.data.dataset`,
 
 from fluksio import Flow, Port
 
-from partiqledtr.analysis import dla_report
+from partiqledtr.analysis import dla_report, encoding_report
 from partiqledtr.data.dataset import build_dataset, dataset_stats
 from partiqledtr.data.whitening import whitening_rotation
 from partiqledtr.train import evaluate, fit
@@ -43,7 +51,7 @@ from partiqledtr.train import evaluate, fit
 generate = Flow(
     "generate",
     title="Generate the decay dataset",
-    nodes=[build_dataset, dataset_stats],
+    nodes=[build_dataset, dataset_stats, encoding_report],
     inputs=[
         Port("seed", "int", initial=0),
         # Per group, so the default is 30 topologies over the three known/unknown
@@ -53,7 +61,14 @@ generate = Flow(
         Port("min_fsps", "int", initial=3),
         Port("max_fsps", "int", initial=8),
     ],
-    outputs=["dataset_train", "dataset_val", "dataset_test", "dataset_meta", "stats"],
+    outputs=[
+        "dataset_train",
+        "dataset_val",
+        "dataset_test",
+        "dataset_meta",
+        "stats",
+        "encoding_report",
+    ],
 )
 
 train = Flow(
@@ -75,7 +90,10 @@ train = Flow(
         Port("batch_size", "int", initial=64),
         Port("lr", "float", initial=1e-3),
         Port("ansatz", "str", initial="XY_Brickwork"),
+        Port("n_layers", "int", initial=2),
+        Port("angle_map", "str", initial="pair_polar"),
         Port("whiten", "bool", initial=False),
+        Port("whitening_seed", "int", initial=0),
     ],
     outputs=[
         "checkpoint",
