@@ -308,3 +308,22 @@ def test_fit_and_evaluate_run_end_to_end(artifacts):
     # The checkpoint alone says how to rebuild the model, so evaluate reproduces fit's
     # final validation accuracy on the same events.
     assert scores["overall"]["accuracy"] == pytest.approx(outputs["final_metrics"]["val_accuracy"])
+
+
+def test_the_whitening_arm_is_opt_in():
+    """`whiten` gates the fixed-preconditioning arm, and defaults to off.
+
+    The rotation is always wired into `fit` by the flow, so without this switch
+    every run would silently be whitened and the ROADMAP's "raw" arm would be
+    unreachable -- which would invalidate the phase-4 comparison rather than
+    merely break it. The default has to stay off.
+    """
+    import inspect
+
+    from partiqledtr.pipeline import train as train_flow
+
+    assert inspect.signature(fit).parameters["whiten"].default is False
+
+    ports = {port.name: port for port in train_flow.inputs}
+    assert "whiten" in ports, "the flow must expose `whiten` so the arm is sweepable"
+    assert ports["whiten"].initial is False

@@ -75,6 +75,7 @@ train = Flow(
         Port("batch_size", "int", initial=64),
         Port("lr", "float", initial=1e-3),
         Port("ansatz", "str", initial="XY_Brickwork"),
+        Port("whiten", "bool", initial=False),
     ],
     outputs=[
         "checkpoint",

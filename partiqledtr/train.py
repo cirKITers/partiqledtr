@@ -522,6 +522,7 @@ def train_model(
         Port("lr", "float"),
         Port("ansatz", "str"),
         Port("whitening", "artifact"),
+        Port("whiten", "bool"),
         Port("dla_report", "json"),
     ],
     provides=[
@@ -551,6 +552,7 @@ def fit(
     lr: float = 1e-3,
     ansatz: str = "XY_Brickwork",
     whitening: dict[str, Any] | None = None,
+    whiten: bool = False,
     dla_report: dict[str, Any] | None = None,
     n_layers: int = 2,
 ) -> Generator[dict[str, float], None, dict[str, Any]]:
@@ -571,9 +573,13 @@ def fit(
         batch_size: Events per optimisation step.
         lr: Adam learning rate.
         ansatz: Ansatz arm of the quantum model.
-        whitening: Optional artifact reference to a fixed whitening rotation from
-            :func:`partiqledtr.data.whitening.whitening_rotation`; the phase-4
-            fixed-preconditioning arm.
+        whitening: Artifact reference to the fixed whitening rotation fitted by
+            :func:`partiqledtr.data.whitening.whitening_rotation`. Always wired in
+            the flow; applied only when ``whiten`` is set.
+        whiten: Select the phase-4 fixed-preconditioning arm. The rotation is
+            fitted regardless, so its acceptance report is recorded for every run,
+            but with ``whiten=False`` the model encodes the raw angles -- that is
+            the ROADMAP's "raw" arm.
         dla_report: Optional DLA certificate from
             :func:`partiqledtr.analysis.dla_report`. Not used by the fit itself --
             requiring it here is what makes the flow record the arm's algebra
@@ -587,7 +593,7 @@ def fit(
         The checkpoint artifact reference and the final metrics record.
     """
     rotation = None
-    if whitening is not None:
+    if whiten and whitening is not None:
         rotation = jnp.asarray(np.load(fluksio.load_artifact(whitening))["rotation"])
 
     module, final = yield from train_model(
