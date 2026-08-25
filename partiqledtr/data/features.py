@@ -1,11 +1,15 @@
 """Kinematic features, normalisation and padding (ROADMAP phase 1).
 
 Four-vectors are laid out ``[px, py, pz, E]``, the layout phasespace returns (verified
-empirically, DECISIONS.md D13). Two encodings are supported and both are stored per split
+empirically, DECISIONS.md D13). Three encodings are supported and all are stored per split
 (D19): ``"angles"`` gives ``(theta, phi, E)``, the natively periodic direction features the
-QFM encoding is built for, and ``"cartesian"`` keeps ``(px, py, pz, E)`` for the ablation.
-Neither uses partiqlegan's ``p * E * pi`` product, whose factors both live in ``[-1, 1]``
-so their product concentrates near zero (D18).
+QFM encoding is built for, ``"cartesian"`` keeps ``(px, py, pz, E)`` for the ablation and
+for the quantum arm's polar map, and ``"legacy"`` keeps the four-vector but scales it the
+way partiqlegan did -- momenta into ``[-1, 1]``, energy into ``[0, 1]`` -- so that
+:func:`partiqledtr.models.qfm.legacy_angles` reproduces that work's ``p * E * pi`` product
+encoding, whose factors then both live in the unit interval and whose product therefore
+concentrates near zero (D18, D80). ``"legacy"`` is the *clustered control arm*, not a
+candidate encoding.
 
 Conventions decided here:
 
@@ -19,7 +23,12 @@ Conventions decided here:
 
 import numpy as np
 
-_FEATURE_DIM = {"angles": 3, "cartesian": 4}
+_FEATURE_DIM = {"angles": 3, "cartesian": 4, "legacy": 4}
+
+#: Encodings whose four-vectors are scaled by the maximum rather than the mean, so
+#: that momenta land in ``[-1, 1]`` and energies in ``[0, 1]`` exactly as partiqlegan
+#: normalised them (``DECISIONS.md`` D80).
+LEGACY_ENCODING = "legacy"
 
 
 def featurize(p4: np.ndarray, *, encoding: str = "angles") -> np.ndarray:
@@ -28,10 +37,12 @@ def featurize(p4: np.ndarray, *, encoding: str = "angles") -> np.ndarray:
     Args:
         p4: ``(..., 4)`` four-vectors laid out ``[px, py, pz, E]``.
         encoding: ``"angles"`` for ``(theta, phi, E)`` with ``theta`` in ``[0, pi]`` and
-            ``phi`` in ``(-pi, pi]``, or ``"cartesian"`` for the four-vectors unchanged.
+            ``phi`` in ``(-pi, pi]``, or ``"cartesian"``/``"legacy"`` for the
+            four-vectors unchanged. The two four-vector encodings differ only in the
+            normalisation applied later, which is what makes ``"legacy"`` clustered.
 
     Returns:
-        ``(..., 3)`` for ``"angles"``, ``(..., 4)`` for ``"cartesian"``.
+        ``(..., 3)`` for ``"angles"``, ``(..., 4)`` otherwise.
 
     Raises:
         ValueError: If the last axis is not 4, or the encoding is unknown.
@@ -41,7 +52,7 @@ def featurize(p4: np.ndarray, *, encoding: str = "angles") -> np.ndarray:
         raise ValueError(f"p4 must have 4 components on its last axis, got {p4.shape[-1]}")
     if encoding not in _FEATURE_DIM:
         raise ValueError(f"encoding must be one of {sorted(_FEATURE_DIM)}, got {encoding!r}")
-    if encoding == "cartesian":
+    if encoding in ("cartesian", LEGACY_ENCODING):
         return p4.copy()
 
     px, py, pz, energy = p4[..., 0], p4[..., 1], p4[..., 2], p4[..., 3]
@@ -79,29 +90,6 @@ def to_cartesian(features: np.ndarray) -> np.ndarray:
     )
 
 
-def polar_angles(x: np.ndarray) -> np.ndarray:
-    """Return the polar angle of each consecutive coordinate pair, mapped to ``[0, 2pi)``.
-
-    This is the unflattening paper's preconditioning map
-    (``reference/unflattening/unflattening/utils/priors.py``); the phase-4 whitening arm
-    applies it to ``x @ Q.T`` for a shared Haar rotation ``Q``.
-
-    Args:
-        x: ``(..., 2k)`` array; consecutive coordinates form the pairs.
-
-    Returns:
-        ``(..., k)`` angles in ``[0, 2pi)``.
-
-    Raises:
-        ValueError: If the last axis is not a positive even number.
-    """
-    x = np.asarray(x, dtype=float)
-    width = x.shape[-1]
-    if width < 2 or width % 2:
-        raise ValueError(f"need a positive even feature dimension to form pairs, got {width}")
-    return np.mod(np.arctan2(x[..., 1::2], x[..., 0::2]), 2 * np.pi)
-
-
 def normalization_scales(train_features: np.ndarray, encoding: str) -> dict[str, float]:
     """Compute the scale-only normalisation constants of a training split.
 
@@ -110,14 +98,20 @@ def normalization_scales(train_features: np.ndarray, encoding: str) -> dict[str,
     at all: they are already ``O(1)`` and scaling them would break the periodicity the QFM
     encoding relies on.
 
+    ``"legacy"`` is the exception and uses the **maximum** instead, because its whole
+    point is to reproduce partiqlegan's bounded normalisation: momenta into ``[-1, 1]``
+    and energy into ``[0, 1]``, so that a product of the two concentrates near zero
+    (``DECISIONS.md`` D80). Using the mean there would leave the factors ``O(1)`` rather
+    than ``<= 1`` and the arm would not be clustered at all.
+
     Args:
         train_features: ``(..., F)`` features of the *training* split only.
-        encoding: ``"angles"`` or ``"cartesian"``.
+        encoding: One of ``"angles"``, ``"cartesian"``, ``"legacy"``.
 
     Returns:
         ``{"energy": ...}`` for ``"angles"``, plus a single shared ``"momentum"`` scale for
-        ``"cartesian"`` (one scale for all three components, so directions are preserved).
-        Plain floats, ready for a json port.
+        the four-vector encodings (one scale for all three components, so directions are
+        preserved). Plain floats, ready for a json port.
 
     Raises:
         ValueError: If the encoding is unknown, the feature width does not match it, no
@@ -128,9 +122,18 @@ def normalization_scales(train_features: np.ndarray, encoding: str) -> dict[str,
     if not unpadded.any():
         raise ValueError("no unpadded rows (E > 0) to compute a normalisation scale from")
 
-    scales = {"energy": float(features[unpadded, -1].mean())}
-    if encoding == "cartesian":
-        scales["momentum"] = float(np.linalg.norm(features[unpadded, :3], axis=-1).mean())
+    reduce = np.max if encoding == LEGACY_ENCODING else np.mean
+    scales = {"energy": float(reduce(features[unpadded, -1]))}
+    if encoding in ("cartesian", LEGACY_ENCODING):
+        # The legacy arm bounds each *component*, since it is components that get
+        # multiplied by the energy; the cartesian arm bounds the vector norm so the
+        # direction is untouched.
+        magnitude = (
+            np.abs(features[unpadded, :3])
+            if encoding == LEGACY_ENCODING
+            else np.linalg.norm(features[unpadded, :3], axis=-1)
+        )
+        scales["momentum"] = float(reduce(magnitude))
     if any(scale <= 0.0 for scale in scales.values()):
         raise ValueError(f"normalisation scales must be positive, got {scales}")
     return scales
@@ -144,7 +147,7 @@ def apply_normalization(
     Args:
         features: ``(..., F)`` features.
         scales: Scales from :func:`normalization_scales` for the same encoding.
-        encoding: ``"angles"`` or ``"cartesian"``.
+        encoding: One of ``"angles"``, ``"cartesian"``, ``"legacy"``.
 
     Returns:
         The rescaled features, same shape. Energies stay non-negative and angles are

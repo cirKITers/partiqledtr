@@ -159,8 +159,12 @@ def lcag_to_adjacency(lcag: np.ndarray) -> np.ndarray:
     if lcag.ndim != 2 or lcag.shape[0] != lcag.shape[1]:
         raise InvalidLCAGError(f"lcag must be a square 2-d matrix, got shape {lcag.shape}")
     n_leaves = lcag.shape[0]
-    if n_leaves == 0:
-        raise InvalidLCAGError("lcag must have at least one leaf")
+    if n_leaves < 2:
+        # One leaf is no decay: there is no pair, hence no ancestor to reconstruct,
+        # and the promised "row L is the root" would not hold.
+        raise InvalidLCAGError(
+            f"lcag needs at least two leaves to describe a decay, got {n_leaves}"
+        )
     if not np.array_equal(lcag, lcag.T):
         raise InvalidLCAGError("lcag must be symmetric")
     off_diagonal = ~np.eye(n_leaves, dtype=bool)
@@ -189,6 +193,45 @@ def lcag_to_adjacency(lcag: np.ndarray) -> np.ndarray:
     if not _is_tree(adjacency):
         raise InvalidLCAGError("reconstruction is not a tree")
     return adjacency
+
+
+def lcag_roundtrip(lcag: np.ndarray) -> np.ndarray:
+    """Return the LCAG implied by the tree reconstructed from ``lcag``.
+
+    :func:`lcag_to_adjacency` is greedy, so a matrix consistent with no single tree
+    can still reduce to one. Re-deriving the LCAG from that tree and comparing is
+    the strict test the greedy one is not: it accepts a matrix only if the tree it
+    produces would produce the matrix back (``DECISIONS.md`` D85).
+
+    Entries come back in the input's own value vocabulary rather than as
+    consecutive generations, because the reconstruction ranks distinct values and a
+    gap in them is a cosmetic property, not a structural inconsistency.
+
+    Args:
+        lcag: ``(L, L)`` LCAG matrix; the diagonal is ignored.
+
+    Returns:
+        The ``(L, L)`` LCAG of the reconstructed tree, equal to ``lcag`` off the
+        diagonal exactly when the matrix is self-consistent.
+
+    Raises:
+        InvalidLCAGError: If ``lcag`` does not reconstruct into a tree at all.
+    """
+    lcag = np.asarray(lcag)
+    lcag_to_adjacency(lcag)  # validates: symmetric, consistent, connected, a tree
+    level, parent, _ = _reconstruct(lcag)
+
+    n_leaves = lcag.shape[0]
+    values = np.unique(lcag[~np.eye(n_leaves, dtype=bool)]).tolist()
+    chains = [_ancestry(leaf, parent) for leaf in range(n_leaves)]
+    implied = np.zeros_like(lcag)
+    for i in range(n_leaves):
+        for j in range(i + 1, n_leaves):
+            rank = level[_lowest_common(chains[i], chains[j])]
+            if not 2 <= rank <= len(values) + 1:
+                raise InvalidLCAGError(f"reconstructed level {rank} has no matching entry")
+            implied[i, j] = implied[j, i] = values[rank - 2]
+    return implied
 
 
 def _reconstruct(lcag: np.ndarray) -> tuple[list[int], list[int], list[list[int]]]:

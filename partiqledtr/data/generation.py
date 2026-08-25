@@ -1,30 +1,41 @@
 """Phase-space event generation for a sampled decay topology (ROADMAP phase 1).
 
-This is the only module that imports phasespace and, through it, TensorFlow.
-Nothing else in the project should import it, so that the seconds-long TensorFlow
-import is paid once, in the generation flow only.
+Uses `phasespace-jax <https://github.com/stroblme/phasespace-jax>`_, a JAX port of
+phasespace, so the project has no TensorFlow dependency and generation runs on the
+same array backend as everything else.
 
 Facts about the phasespace API established by measurement rather than from its
 documentation (see ``DECISIONS.md`` D13, D14):
 
 * ``GenParticle.generate`` returns momenta as ``(n_events, 4)`` arrays laid out
-  ``[px, py, pz, E]``.  Its docstring claims ``(4, n_events)``; the implementation
-  is events-major.
+  ``[px, py, pz, E]``.
 * With ``normalize_weights=True`` (the default) the returned weights are already
   divided by the maximum attainable weight, which is constant across events, so
   they lie in ``[0, 1]`` and accept-reject against a uniform draw is exact
   unweighting -- no maximum has to be estimated.
-* The global TensorFlow seed does not control the generator; a
-  ``tf.random.Generator`` must be passed per call.
+* Randomness is an explicit JAX key. The same key reproduces a draw exactly, so
+  the accept-reject loop must *split* its key per round; reusing one key would
+  redraw the identical chunk forever.
+* The kinematics run under a scoped ``jax.enable_x64()`` and therefore return
+  **float64** arrays, whatever the calling program's default is. Combining those
+  directly with a float32 JAX array warns and silently truncates, so this module
+  converts to numpy at the boundary and hands back numpy float64. Downstream code
+  never meets a stray float64 JAX array.
+* ``generate`` is jitted with ``n_events`` as a static argument, so every distinct
+  chunk size costs a compilation. Acceptance rates vary by orders of magnitude
+  between topologies -- a decay whose daughters nearly saturate the parent mass
+  has very little phase space -- so the loop draws one pilot chunk to measure the
+  rate, then holds a single derived chunk size for the rest. That is two compiled
+  sizes per topology instead of one per round.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+import jax
 import numpy as np
 import phasespace
-import tensorflow as tf
 
 __all__ = ["generate_events", "leaf_names"]
 
@@ -63,22 +74,22 @@ def generate_events(
 
     Events are drawn in chunks and accepted with probability equal to their
     normalised phase-space weight, so the returned sample follows the phase-space
-    density.  Prior work (baumbauen, partiqlegan) discarded the weights and used
+    density. Prior work (baumbauen, partiqlegan) discarded the weights and used
     the raw sample, which biases exactly the angular marginals this project
     studies (``DECISIONS.md`` D12).
 
     Args:
         topology: Nested ``{"name", "mass", "children"}`` dict describing the decay.
         n_events: Number of unweighted events to return.
-        seed: Seed for both the TensorFlow generator and the acceptance draws.
-        chunk_factor: Multiplier on the running acceptance-rate estimate used to
-            size each generation chunk.  Larger values trade memory for fewer
-            rounds.
+        seed: Seed for the JAX generation key and the acceptance draws.
+        chunk_factor: Headroom on the chunk size derived from the measured
+            acceptance rate, so a round normally overshoots rather than needing
+            another one.
         max_rounds: Safety bound on the accept-reject loop.
 
     Returns:
-        Mapping from final-state particle name to an ``(n_events, 4)`` float64
-        array of ``[px, py, pz, E]`` four-momenta.
+        Mapping from final-state particle name to an ``(n_events, 4)`` float array
+        of ``[px, py, pz, E]`` four-momenta.
 
     Raises:
         ValueError: If ``n_events`` is not positive or the topology has no decay.
@@ -92,32 +103,41 @@ def generate_events(
 
     names = leaf_names(topology)
     root = _build_particle(topology)
-    tf_rng = tf.random.Generator.from_seed(seed)
+    key = jax.random.key(seed)
     accept_rng = np.random.default_rng(seed)
 
     accepted: list[np.ndarray] = []
     n_accepted = 0
-    n_drawn = 0
-    for _ in range(max_rounds):
-        # Size the next chunk from the acceptance rate seen so far, starting
-        # optimistic and correcting downwards as evidence arrives.
-        rate = max(n_accepted / n_drawn, 1e-3) if n_drawn else 1.0
-        chunk = int(np.ceil(chunk_factor * (n_events - n_accepted) / rate))
-        weights, events = root.generate(chunk, seed=tf_rng)
 
-        weights = np.asarray(weights)
+    def draw(size: int) -> int:
+        """Generate `size` events, keep the accepted ones, return how many."""
+        nonlocal key, n_accepted
+        key, subkey = jax.random.split(key)
+        # `generate` returns (weights, momenta) normalised and (weights, max,
+        # momenta) otherwise, so index the ends rather than unpacking a union.
+        drawn = root.generate(size, key=subkey)
+        weights = np.asarray(drawn[0])
         keep = accept_rng.random(weights.shape) < weights
         # (n_kept, n_leaves, 4): stack leaves in the order `names` fixes.
-        accepted.append(np.stack([np.asarray(events[name])[keep] for name in names], axis=1))
+        accepted.append(np.stack([np.asarray(drawn[-1][name])[keep] for name in names], axis=1))
         n_accepted += int(keep.sum())
-        n_drawn += chunk
+        return int(keep.sum())
+
+    # One pilot chunk to measure the acceptance rate, which ranges over orders of
+    # magnitude across topologies, then one fixed size for every round after it.
+    pilot = max(1024, n_events)
+    n_kept = draw(pilot)
+    rate = max(n_kept / pilot, 1.0 / pilot)
+    chunk = int(np.ceil(chunk_factor * max(n_events - n_accepted, 1) / rate))
+
+    for _ in range(max_rounds):
         if n_accepted >= n_events:
             break
+        draw(chunk)
     else:
         raise RuntimeError(
-            f"unweighting did not reach {n_events} events in {max_rounds} rounds "
-            f"({n_accepted} accepted from {n_drawn} drawn); acceptance rate is "
-            f"{n_accepted / max(n_drawn, 1):.3g}"
+            f"unweighting did not reach {n_events} events in {max_rounds} rounds of "
+            f"{chunk} ({n_accepted} accepted); measured acceptance rate is {rate:.3g}"
         )
 
     sample = np.concatenate(accepted)[:n_events]

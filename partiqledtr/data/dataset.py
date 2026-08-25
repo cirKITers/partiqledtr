@@ -28,12 +28,15 @@ from partiqledtr.data.features import (
     normalization_scales,
     pad_events,
 )
+from partiqledtr.data.generation import generate_events
 from partiqledtr.data.lcag import shuffle_leaves, topology_to_lcag
-from partiqledtr.data.topology import canonical_form, count_fsps, sample_topologies
+from partiqledtr.data.topology import canonical_form, count_fsps, sample_topologies, shape_form
 
 __all__ = ["assemble_dataset", "build_dataset", "dataset_statistics", "dataset_stats", "load_split"]
 
-ENCODINGS = ("angles", "cartesian")
+#: Feature encodings stored in every split (D19). ``"legacy"`` is the clustered
+#: control arm of D80, not a candidate encoding.
+ENCODINGS = ("angles", "cartesian", "legacy")
 SPLITS = ("train", "val", "test")
 
 # Which splits each topology group may contribute events to (D16).
@@ -106,9 +109,6 @@ def assemble_dataset(
     if not 1 <= n_groups <= len(_GROUP_SPLITS):
         raise ValueError(f"n_groups must be between 1 and {len(_GROUP_SPLITS)}, got {n_groups}")
 
-    # Imported here so that importing this module does not pull in TensorFlow (D7).
-    from partiqledtr.data.generation import generate_events
-
     rng = np.random.default_rng(seed)
     groups = sample_topologies(
         rng,
@@ -123,6 +123,7 @@ def assemble_dataset(
     parts: dict[str, list[dict[str, np.ndarray]]] = {name: [] for name in SPLITS}
     topology_group: list[int] = []
     topology_form: list[str] = []
+    topology_shape: list[str] = []
     topology_id = 0
     for group, topologies in enumerate(groups):
         for topology in topologies:
@@ -145,16 +146,18 @@ def assemble_dataset(
                 start += size
                 padded: dict[str, np.ndarray] = {}
                 for enc in ENCODINGS:
-                    features, padded["lcag"] = pad_events(
+                    # The padded labels are the same for every encoding; taking them
+                    # from the last one keeps a single call site for the -1 convention.
+                    padded[f"features_{enc}"], padded["lcag"] = pad_events(
                         featurize(p4[take], encoding=enc), labels[take], max_fsps
                     )
-                    padded[f"features_{enc}"] = features
                 padded["n_fsps"] = np.full(size, count_fsps(topology), dtype=np.int16)
                 padded["topology_id"] = np.full(size, topology_id, dtype=np.int32)
                 parts[name].append(padded)
 
             topology_group.append(group)
             topology_form.append(canonical_form(topology))
+            topology_shape.append(shape_form(topology))
             topology_id += 1
 
     splits = {
@@ -187,6 +190,9 @@ def assemble_dataset(
         "scales": scales,
         "topology_group": topology_group,
         "topology_form": topology_form,
+        # Unlabelled shapes, which is what the LCAG label sees: distinct across all
+        # topologies by construction, so the known/unknown probe is a real one (D82).
+        "topology_shape": topology_shape,
         "group_splits": [list(s) for s in _GROUP_SPLITS[:n_groups]],
         "counts": {name: len(split["lcag"]) for name, split in splits.items()},
     }

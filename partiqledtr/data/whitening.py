@@ -177,13 +177,13 @@ def fit_whitening(
 
 
 @node(
-    requires=[Port("dataset_train", "artifact")],
+    requires=[Port("dataset_train", "artifact"), Port("whitening_seed", "int")],
     provides=[Port("whitening", "artifact"), Port("whitening_report", "json")],
 )
 def whitening_rotation(
     *,
     dataset_train: dict[str, Any],
-    seed: int = 0,
+    whitening_seed: int = 0,
     max_draws: int = 200,
     n_pairs: int = 4096,
 ) -> dict[str, Any]:
@@ -191,7 +191,9 @@ def whitening_rotation(
 
     Args:
         dataset_train: Training split artifact reference.
-        seed: Seed for the rotation draws and the pair sampling.
+        whitening_seed: Seed for the rotation draws and the pair sampling. Its own
+            port rather than the run seed, so the acceptance rate can be swept
+            without also re-seeding the model.
         max_draws: Maximum candidate rotations before giving up.
         n_pairs: Edge samples used to estimate each candidate's mean purity.
 
@@ -204,7 +206,7 @@ def whitening_rotation(
     rotation, report = fit_whitening(
         split["features_cartesian"],
         split["n_fsps"],
-        seed=seed,
+        seed=whitening_seed,
         max_draws=max_draws,
         n_pairs=n_pairs,
     )

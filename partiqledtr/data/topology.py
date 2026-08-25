@@ -148,6 +148,26 @@ def canonical_form(topology: dict) -> str:
     return f"({topology['mass']:g}{children})"
 
 
+def shape_form(topology: dict) -> str:
+    """Return the canonical form of a topology's *unlabelled* shape.
+
+    :func:`canonical_form` keys on masses, but the LCAG label depends only on the
+    tree shape, and masses are not model inputs. Two topologies with different
+    masses and the same shape therefore carry the *same* label matrix, so deduping
+    on the mass-labelled form alone would let a group-C "unseen" topology repeat a
+    label the model already trained on (``DECISIONS.md`` D82).
+
+    Args:
+        topology: The topology to encode.
+
+    Returns:
+        A string such as ``"((()())())"``, equal exactly for isomorphic shapes.
+    """
+    if not topology["children"]:
+        return "()"
+    return "(" + "".join(sorted(shape_form(c) for c in topology["children"])) + ")"
+
+
 def sample_topologies(
     rng: np.random.Generator,
     *,
@@ -164,6 +184,22 @@ def sample_topologies(
     The groups feed the generalisation probe of DECISIONS.md D16 (group A to
     train/val/test, B to val/test, C to test only).
 
+    Topologies are pairwise non-isomorphic **as unlabelled shapes**, not merely as
+    mass-labelled trees (D82). That is what the generalisation probe needs: an
+    "unseen" topology whose shape the model already trained on would carry a label
+    matrix it has seen, and the probe would silently measure memorisation.
+
+    Groups are dealt round-robin from the draw sorted by leaf count, so their
+    multiplicity profiles match as closely as the counts allow: the probe has to
+    measure familiarity with a topology, not the size of one (D83). ``per_group``
+    must still be at least the FSP span, or a group cannot cover the range at all.
+
+    The number of distinct shapes at a *small* leaf count is genuinely small --
+    with ``max_depth=4`` there are only a handful with three leaves -- so a slot
+    whose scheduled count is exhausted falls through to the next count rather
+    than failing. That is the constraint the mass-labelled dedup was hiding: it
+    kept drawing "new" topologies that carried labels already in the set.
+
     Args:
         rng: Random generator; the only source of randomness.
         n_groups: Number of topology groups.
@@ -178,8 +214,8 @@ def sample_topologies(
         across the whole result.
 
     Raises:
-        ValueError: If an argument is out of range, or if no unseen topology was found
-            for one of the slots.
+        ValueError: If an argument is out of range, if ``per_group`` is smaller than
+            the FSP span, or if no unseen shape was found for one of the slots.
     """
     if n_groups < 1 or per_group < 1:
         raise ValueError(f"n_groups and per_group must be positive, got {n_groups}, {per_group}")
@@ -187,25 +223,61 @@ def sample_topologies(
         raise ValueError(f"max_fsps={max_fsps} is below min_fsps={min_fsps}")
 
     span = max_fsps - min_fsps + 1
+    if per_group < span:
+        raise ValueError(
+            f"per_group={per_group} is below the FSP span {span} "
+            f"([{min_fsps}, {max_fsps}]), so the groups would get disjoint particle "
+            f"counts and the known/unknown probe would confound unseen topology with "
+            f"unseen multiplicity; raise per_group or narrow the range"
+        )
+
     seen: set[str] = set()
     flat: list[dict] = []
     for i in range(n_groups * per_group):
-        n_fsps = min_fsps + i % span
+        topology = _draw_unseen_shape(
+            rng, i, span, seen, min_fsps=min_fsps, max_depth=max_depth, isp_weight=isp_weight
+        )
+        seen.add(shape_form(topology))
+        flat.append(topology)
+
+    # Deal by leaf count rather than slicing the draw order. Small counts have few
+    # shapes, so they are exhausted first; slicing would hand group A the small
+    # trees and group C only the large ones, and the known/unknown probe would
+    # compare multiplicities instead of familiarity (D83).
+    flat.sort(key=count_fsps)
+    return [flat[g::n_groups] for g in range(n_groups)]
+
+
+def _draw_unseen_shape(
+    rng: np.random.Generator,
+    slot: int,
+    span: int,
+    seen: set[str],
+    *,
+    min_fsps: int,
+    max_depth: int,
+    isp_weight: float,
+) -> dict:
+    """Draw a topology whose shape is not in ``seen``, preferring this slot's FSP count.
+
+    Raises:
+        ValueError: If no unseen shape was found at any count in the range.
+    """
+    for offset in range(span):
+        n_fsps = min_fsps + (slot + offset) % span
         for _ in range(_ISO_TRIES):
             topology = sample_topology(
                 rng, n_fsps=n_fsps, max_depth=max_depth, isp_weight=isp_weight
             )
-            key = canonical_form(topology)
-            if key not in seen:
-                seen.add(key)
-                flat.append(topology)
-                break
-        else:
-            raise ValueError(
-                f"no unseen topology with n_fsps={n_fsps} after {_ISO_TRIES} draws; "
-                f"ask for fewer topologies or widen the [min_fsps, max_fsps] range"
-            )
-    return [flat[g * per_group : (g + 1) * per_group] for g in range(n_groups)]
+            # Keyed on the unlabelled shape: that is what the LCAG label sees (D82).
+            if shape_form(topology) not in seen:
+                return topology
+    raise ValueError(
+        f"no unseen topology shape at any leaf count in "
+        f"[{min_fsps}, {min_fsps + span - 1}] after {_ISO_TRIES} draws each; "
+        f"{len(seen)} shapes already drawn. Ask for fewer topologies, widen the range, "
+        f"or raise max_depth (deeper trees admit more shapes)"
+    )
 
 
 def count_fsps(topology: dict) -> int:
