@@ -12,25 +12,42 @@ can only come from the quantum edge function (``DECISIONS.md`` D27).
 
 Encoding contract, verified by measurement rather than assumed (``DECISIONS.md``
 D25, D55): with ``encoding=["RY"] * n_qubits`` and a diagonal ``data_reupload``
-mask, feature ``f`` is encoded on qubit ``f`` alone, once per layer. The encoded
-state is then exactly the product state ``prod_q RY(n_layers * u_q)|0>`` the
-unflattening closed forms are written for, and with zero ansatz parameters the
-per-qubit readout is exactly ``cos(n_layers * u_q)``.
+mask, feature ``f`` is encoded on qubit ``f`` alone, once per layer. With zero
+ansatz parameters the per-qubit readout is exactly ``cos(n_layers * u_q)``, since
+the re-uploaded rotations then compose.
+
+The state the *closed-form* g-purity describes is the product state
+``prod_q RY(u_q)|0>`` entering the first trainable block -- the encoded angle
+distribution, not the trained circuit, and not ``L u`` (``DECISIONS.md`` D78).
+:meth:`QFMConstellation.g_purity` reports that; :meth:`QFMConstellation.g_purity_exact`
+reports the same quantity for the state the circuit actually prepares. Both are
+streamed, because they answer different questions and only agree in the
+clustered limit.
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import nnx
+from jax.typing import ArrayLike
 from qml_essentials.model import Model
 
+from partiqledtr.analysis import ANSAETZE, G_PURITY_BY_ANSATZ, dla_basis, g_purity_exact
 from partiqledtr.models.gnn import _edge_mask, edge2node, node2edge
 
-__all__ = ["ANSAETZE", "N_QUBITS", "QFMConstellation", "make_qfm"]
-
-ANSAETZE = ("XY_Brickwork", "Matchgate", "Circuit_19")
+__all__ = [
+    "ANGLE_MAPS",
+    "ANSAETZE",
+    "N_QUBITS",
+    "QFMConstellation",
+    "legacy_angles",
+    "make_qfm",
+    "pair_polar",
+]
 
 #: Qubits per edge QFM: two pair-polar angles from each of the two endpoints (D24).
 N_QUBITS = 4
@@ -60,14 +77,11 @@ def make_qfm(ansatz: str, *, n_layers: int = 2, seed: int = 0) -> Model:
     if n_layers < 1:
         raise ValueError(f"n_layers must be positive, got {n_layers}")
 
-    # Diagonal mask: feature f reaches qubit f only, in every layer. Passed as a
-    # nested list rather than a NumPy array because that is the form
-    # qml-essentials annotates; the setter converts either to the same array, and
-    # both were checked to give identical outputs.
-    reupload = [
-        [[qubit == feature for feature in range(N_QUBITS)] for qubit in range(N_QUBITS)]
-        for _ in range(n_layers)
-    ]
+    # Diagonal mask: feature f reaches qubit f only, in every layer.
+    reupload = np.zeros((n_layers, N_QUBITS, N_QUBITS), dtype=bool)
+    for layer in range(n_layers):
+        for qubit in range(N_QUBITS):
+            reupload[layer, qubit, qubit] = True
 
     return Model(
         n_qubits=N_QUBITS,
@@ -81,32 +95,83 @@ def make_qfm(ansatz: str, *, n_layers: int = 2, seed: int = 0) -> Model:
     )
 
 
-def pair_polar(p4: jax.Array) -> jax.Array:
+def pair_polar(p4: ArrayLike) -> jax.Array:
     """Map four-vectors to the two pair-polar angles the QFMs encode.
 
     Coordinate pairs become polar angles, ``(px, py) -> phi`` and ``(pz, E) ->
-    alpha``, both in ``[0, 2 pi)``. This is the unflattening paper's ``polar_angles``
-    map, which is what lets the phase-4 whitening arm be that paper's construction
-    verbatim (``DECISIONS.md`` D24). The pair radii are dropped, so momentum and
-    energy magnitudes do not enter the quantum path.
+    alpha``. This is the unflattening paper's ``polar_angles`` map, which is what
+    lets the phase-4 whitening arm be that paper's construction verbatim
+    (``DECISIONS.md`` D24). The pair radii are dropped, so momentum and energy
+    magnitudes do not enter the quantum path.
 
-    Note that ``alpha`` depends on the momentum and energy normalisation scales,
-    which differ slightly, so the ``(pz, E)`` plane is mildly anisotropic. That is
-    a fixed reparametrisation of the input, and the whitening arm rotates the
-    four-vector anyway.
+    The two angles do **not** cover the circle equally, and the asymmetry is
+    physical rather than incidental (``DECISIONS.md`` D79):
+
+    * ``phi`` is a genuine azimuth and covers ``[0, 2 pi)``;
+    * ``alpha`` cannot leave ``(0, pi)`` at all, because ``E > 0`` puts the pair
+      in the upper half-plane, and ``E >= |p| >= |pz|`` confines it further to
+      about ``[pi/4, 3 pi/4]`` -- a quarter of the circle, widened only slightly
+      by momentum and energy carrying different normalisation scales. The
+      ``jnp.mod`` is therefore a no-op on the ``alpha`` components.
+
+    That concentration around ``pi/2`` is a kinematic bound, not a softness
+    effect: soft and hard particles sit at the same place. It matters for the
+    phase-4 reading, because ``pi/2`` is the *favourable* RY point, so this
+    encoding starts well away from the clustered regime -- see
+    :func:`legacy_angles` for the arm that does cluster.
 
     Args:
-        p4: ``(..., 4)`` four-vectors laid out ``[px, py, pz, E]``.
+        p4: ``(..., 4)`` four-vectors laid out ``[px, py, pz, E]``; anything
+            :func:`jax.numpy.asarray` accepts, since callers hand over numpy too.
 
     Returns:
-        ``(..., 2)`` angles in ``[0, 2 pi)``.
+        ``(..., 2)`` angles ``(phi, alpha)`` in ``[0, 2 pi)``.
 
     Raises:
         ValueError: If the last axis is not 4.
     """
+    p4 = jnp.asarray(p4)
     if p4.shape[-1] != 4:
         raise ValueError(f"expected four-vectors on the last axis, got {p4.shape[-1]}")
     return jnp.mod(jnp.arctan2(p4[..., 1::2], p4[..., 0::2]), 2 * jnp.pi)
+
+
+def legacy_angles(p4: ArrayLike) -> jax.Array:
+    """Map four-vectors to partiqlegan's product encoding angles.
+
+    The prior work encoded each particle on one qubit as ``RX(px E pi)``,
+    ``RY(py E pi)``, ``RZ(pz E pi)`` with momenta scaled into ``[-1, 1]`` and
+    energy into ``[0, 1]``. Our edge QFM spends two qubits per particle, so this
+    keeps two of those three angles -- the ``RX`` and ``RZ`` ones, ``(px E pi,
+    pz E pi)`` -- and drops the ``py`` one.
+
+    It exists as a deliberately *clustered* input arm (``DECISIONS.md`` D80).
+    Both factors live in the unit interval, so their product concentrates near
+    zero, which is the collapsed point of the RY encoding and the regime where
+    the unflattening rescue prediction is falsifiable. Feed it the ``"legacy"``
+    encoding, whose normalisation is max-based precisely so the ``[-1, 1]``
+    premise of that argument holds.
+
+    Args:
+        p4: ``(..., 4)`` four-vectors laid out ``[px, py, pz, E]``, normalised by
+            :data:`partiqledtr.data.features.LEGACY_ENCODING`.
+
+    Returns:
+        ``(..., 2)`` angles ``(px E pi, pz E pi)``.
+
+    Raises:
+        ValueError: If the last axis is not 4.
+    """
+    p4 = jnp.asarray(p4)
+    if p4.shape[-1] != 4:
+        raise ValueError(f"expected four-vectors on the last axis, got {p4.shape[-1]}")
+    energy = p4[..., 3]
+    return jnp.stack([p4[..., 0] * energy, p4[..., 2] * energy], axis=-1) * jnp.pi
+
+
+#: Four-vectors to the two angles each particle contributes to an edge QFM.
+#: ``"legacy"`` is the clustered control arm and needs the ``"legacy"`` encoding.
+ANGLE_MAPS = {"pair_polar": pair_polar, "legacy": legacy_angles}
 
 
 class QFMConstellation(nnx.Module):
@@ -129,20 +194,30 @@ class QFMConstellation(nnx.Module):
     path that writes no model state -- so the whole forward pass is safe under an
     outer ``jax.jit``.
 
+    Only the ansatz parameters train. The encoding weights (``enc_params``) stay
+    frozen at one, i.e. this is a fixed-frequency model whose spectrum is set by
+    the encoding alone; making them trainable is a separate ROADMAP axis and a
+    separate hazard (Fourier locking), so it is deliberately not folded in here.
+
     Args:
         n_classes: Number of LCAG classes ``C``.
         ansatz: Ansatz arm, one of :data:`ANSAETZE`.
         n_layers: Data-reuploading depth of each QFM.
+        angle_map: Key into :data:`ANGLE_MAPS`: ``"pair_polar"`` for the polar map
+            of ``DECISIONS.md`` D24, ``"legacy"`` for the clustered control arm,
+            which expects the ``"legacy"`` encoding.
         frontend: Optional elementwise front end ``(..., 2) -> (..., 2)`` applied to
             the angles; ``None`` feeds them raw.
         whitening: Optional ``(4, 4)`` rotation applied to the four-vectors before
-            the polar map -- the phase-4 fixed-whitening arm.
+            the polar map -- the phase-4 fixed-whitening arm. Accepts anything
+            :func:`jax.numpy.asarray` takes, so a checkpoint can carry it as a
+            nested list (``DECISIONS.md`` D81).
         seed: Seed for the quantum parameter initialisation.
         rngs: Rng container for the classical parameters.
 
     Raises:
-        ValueError: If ``n_classes < 2``, the ansatz is unknown, or ``whitening``
-            is not ``(4, 4)``.
+        ValueError: If ``n_classes < 2``, the ansatz or angle map is unknown, or
+            ``whitening`` is not ``(4, 4)``.
     """
 
     #: A front end attached here sees the pair-polar angles, not the raw
@@ -156,8 +231,9 @@ class QFMConstellation(nnx.Module):
         *,
         ansatz: str = "XY_Brickwork",
         n_layers: int = 2,
+        angle_map: str = "pair_polar",
         frontend: nnx.Module | None = None,
-        whitening: jax.Array | None = None,
+        whitening: Any = None,
         seed: int = 0,
         rngs: nnx.Rngs,
         dim: int = 0,
@@ -172,13 +248,19 @@ class QFMConstellation(nnx.Module):
             )
         if n_classes < 2:
             raise ValueError(f"n_classes must be >= 2, got {n_classes}")
-        if whitening is not None and tuple(whitening.shape) != (4, 4):
-            raise ValueError(f"whitening must be (4, 4), got {tuple(whitening.shape)}")
+        if angle_map not in ANGLE_MAPS:
+            raise ValueError(f"angle_map must be one of {sorted(ANGLE_MAPS)}, got {angle_map!r}")
+        # Converted before the shape check so a checkpoint may carry the rotation
+        # as a nested list rather than an array (D81).
+        rotation = None if whitening is None else jnp.asarray(whitening, dtype=jnp.float32)
+        if rotation is not None and rotation.shape != (4, 4):
+            raise ValueError(f"whitening must be (4, 4), got {rotation.shape}")
 
         self.ansatz = ansatz
         self.n_layers = n_layers
+        self.angle_map = angle_map
         self.frontend = frontend
-        self.whitening = None if whitening is None else jnp.asarray(whitening)
+        self.whitening = rotation
 
         first, second = (
             make_qfm(ansatz, n_layers=n_layers, seed=seed),
@@ -220,7 +302,7 @@ class QFMConstellation(nnx.Module):
         """
         if self.whitening is not None:
             x = x @ self.whitening.T
-        angles = pair_polar(x)
+        angles = ANGLE_MAPS[self.angle_map](x)
         return angles if self.frontend is None else self.frontend(angles)
 
     def edge_angles(self, x: jax.Array, mask: jax.Array) -> jax.Array:
@@ -238,12 +320,16 @@ class QFMConstellation(nnx.Module):
         return pairs[_edge_mask(mask).reshape(-1)]
 
     def g_purity(self, x: jax.Array, mask: jax.Array) -> jax.Array:
-        """Mean g-purity of the states this arm's first block encodes.
+        """Mean closed-form g-purity of the angle distribution this arm encodes.
 
-        The phase-4 observable. The encoded state is the RY product state
-        ``prod_q RY(n_layers * u_q)|0>``, so the closed forms of
-        :mod:`partiqledtr.analysis` apply directly and the measurement costs
-        ``O(n)`` per edge -- cheap enough to track every epoch.
+        The phase-4 observable. The argument is the encoded angle ``u`` itself,
+        which makes this the g-purity of the product state
+        ``prod_q RY(u_q)|0>`` entering the first trainable block -- the scope the
+        unflattening closed forms claim under re-uploading, and the same
+        convention the whitening acceptance test uses (``DECISIONS.md`` D78). It
+        is a property of *data plus encoding*, not of the trained circuit; for
+        that, see :meth:`g_purity_exact`. Costs ``O(n)`` per edge, so it is cheap
+        enough to track every epoch.
 
         Read it against :func:`partiqledtr.analysis.offdiag_uniform_mean`: on
         ``XY_Brickwork`` the theory predicts a collapse on clustered inputs and a
@@ -257,10 +343,36 @@ class QFMConstellation(nnx.Module):
         Returns:
             Scalar mean g-purity over the real edges.
         """
-        from partiqledtr.analysis import G_PURITY_BY_ANSATZ
+        return jnp.mean(G_PURITY_BY_ANSATZ[self.ansatz](self.edge_angles(x, mask)))
 
+    def g_purity_exact(self, x: jax.Array, mask: jax.Array) -> float:
+        """Mean g-purity of the state the first QFM block actually prepares.
+
+        Runs the circuit to its statevector, parameters and all, and sums
+        ``<psi|B|psi>**2`` over the arm's DLA basis. This is the model-side
+        counterpart of :meth:`g_purity`: the two agree in the clustered limit,
+        where every encoding rotation tends to the identity, and diverge at
+        generic angles because qml-essentials orders each layer ansatz-first
+        (``DECISIONS.md`` D78).
+
+        Not jittable and ``O(4**n)`` in the basis, so it is measured once at the
+        end of training rather than per step.
+
+        Args:
+            x: ``(B, L, 4)`` four-vectors.
+            mask: Boolean ``(B, L)``, True on real particles.
+
+        Returns:
+            Mean exact g-purity over the real edges, or NaN if there are none.
+        """
         angles = self.edge_angles(x, mask)
-        return jnp.mean(G_PURITY_BY_ANSATZ[self.ansatz](self.n_layers * angles))
+        if angles.shape[0] == 0:
+            return float("nan")
+        states = self._qfm1.apply(
+            params=self.qfm1_params[...], inputs=angles, execution_type="state"
+        )
+        basis = dla_basis(self.ansatz, N_QUBITS)
+        return float(np.mean(g_purity_exact(np.asarray(states).reshape(-1, 2**N_QUBITS), basis)))
 
     def __call__(self, x: jax.Array, mask: jax.Array) -> jax.Array:
         """Predict LCAG class logits.

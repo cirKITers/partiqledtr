@@ -15,6 +15,9 @@ to a model as its ``frontend`` argument.
 
 There is no abstract base class: the convention plus the two registries is the whole
 interface. Phase 3 adds a ``"qfm"`` model, phase 4 a ``"whiten"`` front end.
+
+:func:`n_params` counts a model and :func:`matched_dim` inverts that count, which is
+how the parameter-matched classical arm of a study is chosen.
 """
 
 import jax
@@ -42,3 +45,40 @@ def n_params(module: nnx.Module) -> int:
         parameter-match the phase-3 quantum model against a classical baseline.
     """
     return sum(int(leaf.size) for leaf in jax.tree.leaves(nnx.state(module, nnx.Param)))
+
+
+def matched_dim(target: int, build, *, max_dim: int = 256, **kwargs) -> int:
+    """Return the ``dim`` whose parameter count sits closest to ``target``.
+
+    Parameter matching was a claim in the write-up before it was a tool, and the
+    claim was wrong by a factor of sixteen (``DECISIONS.md`` D86). This makes it
+    computable, so the matched arm of a study is derived rather than asserted.
+
+    Args:
+        target: Parameter count to match, e.g. that of the quantum arm.
+        build: A callable taking ``dim=`` plus ``kwargs`` and returning a module,
+            normally :func:`partiqledtr.train.build_model`. Its parameter count has
+            to grow with ``dim``, which every model here satisfies.
+        max_dim: Largest width to consider.
+        **kwargs: Forwarded to ``build`` unchanged.
+
+    Returns:
+        The best ``dim`` in ``[1, max_dim]``.
+
+    Raises:
+        ValueError: If ``target`` is not positive or ``max_dim`` is below 1.
+    """
+    if target < 1 or max_dim < 1:
+        raise ValueError(f"target and max_dim must be positive, got {target}, {max_dim}")
+
+    # Parameter count grows with width, so bisect rather than build every candidate:
+    # a linear scan to 256 costs hundreds of model constructions for the same answer.
+    low, high = 1, max_dim
+    while low < high:
+        mid = (low + high) // 2
+        if n_params(build(dim=mid, **kwargs)) < target:
+            low = mid + 1
+        else:
+            high = mid
+    below = max(low - 1, 1)
+    return min((below, low), key=lambda dim: abs(n_params(build(dim=dim, **kwargs)) - target))
