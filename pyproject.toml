@@ -8,7 +8,7 @@ dependencies = [
     "flax>=0.12.9",
     "qml-essentials",
     "optax>=0.2.8",
-    "numpy>=2",
+    "numpy>=2.3",
     "matplotlib>=3.9",
     "fluksio>=0.1.1",
     "phasespace-jax",
