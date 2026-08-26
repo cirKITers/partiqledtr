@@ -472,8 +472,9 @@ def train_model(
 
     Yields:
         One dict per epoch with ``epoch``, ``train_loss``, ``val_loss``,
-        ``val_accuracy``, ``val_perfect`` and ``g_purity`` (NaN for models that
-        encode no quantum state).
+        ``val_accuracy``, ``val_perfect``, and -- for the arms that encode a
+        quantum state -- ``g_purity`` plus the site means ``tv_uniform`` and
+        ``mean_sin2`` of :func:`partiqledtr.analysis.angle_stats`.
 
     Returns:
         A ``(module, final_metrics)`` pair. ``final_metrics["config"]`` is what
@@ -515,8 +516,11 @@ def train_model(
     # A fixed validation subset, so the purity series tracks the model rather than
     # the sample. Only the arms that encode quantum states expose g_purity.
     measure_purity = getattr(module, "g_purity", None)
+    measure_angles = getattr(module, "angle_stats", None)
     purity_batch = None
     initial_purity = float("nan")
+    initial_angles: dict[str, list[float]] | None = None
+    angles: dict[str, list[float]] | None = None
     if measure_purity is not None:
         val_features, val_mask, _ = _split_arrays(val, encoding)
         take = slice(0, min(n_purity_events, len(val_mask)))
@@ -525,6 +529,7 @@ def train_model(
         # also the raw arm's level -- without it a learned-front-end trajectory has
         # no anchor and its first plotted point is already one epoch of training old.
         initial_purity = float(measure_purity(*purity_batch))
+        initial_angles = measure_angles(*purity_batch) if measure_angles else None
 
     rng = np.random.default_rng(seed)
     train_loss = float("nan")
@@ -549,6 +554,12 @@ def train_model(
         )
         if measure_purity is not None and purity_batch is not None:
             val_metrics["g_purity"] = float(measure_purity(*purity_batch))
+        if measure_angles is not None and purity_batch is not None:
+            # Streamed as the site mean, because a stream port carries one float;
+            # the per-site vectors the reading actually needs ride in final_metrics.
+            angles = measure_angles(*purity_batch)
+            val_metrics["tv_uniform"] = float(np.mean(angles["tv_uniform"]))
+            val_metrics["mean_sin2"] = float(np.mean(angles["mean_sin2"]))
         record = {
             "epoch": epoch,
             "train_loss": train_loss,
@@ -560,6 +571,9 @@ def train_model(
         # port accepts neither a non-finite value nor None (``DECISIONS.md`` D75).
         if "g_purity" in val_metrics:
             record["g_purity"] = val_metrics["g_purity"]
+        for name in ("tv_uniform", "mean_sin2"):
+            if name in val_metrics:
+                record[name] = val_metrics[name]
         yield record
 
     final = {
@@ -580,6 +594,12 @@ def train_model(
         exact = getattr(module, "g_purity_exact", None)
         if exact is not None:
             final["g_purity_exact"] = exact(*purity_batch)
+        # Per-site, start and end. Pooling hides the thing worth seeing: sites
+        # peaking at different angles average into something that looks flat (D92).
+        if initial_angles is not None:
+            final["angle_stats_initial"] = initial_angles
+        if angles is not None:
+            final["angle_stats_final"] = angles
     return module, final
 
 
@@ -608,6 +628,11 @@ def train_model(
     # for jit compilation, so the limit has to cover that rather than a steady one
     # (``DECISIONS.md`` D89).
     timeout=2 * 60 * 60,
+    # The fingerprint covers this function's source, not `train_model` where the
+    # loop actually lives, so editing the helper silently replays a pre-change run
+    # -- which for the node that produces the study's numbers is a correctness
+    # hazard, not an inconvenience (``DECISIONS.md`` D93).
+    cache=False,
     provides=[
         Port("epoch", "int", stream=True),
         Port("train_loss", "float", stream=True),
@@ -615,6 +640,8 @@ def train_model(
         Port("val_accuracy", "float", stream=True),
         Port("val_perfect", "float", stream=True),
         Port("g_purity", "float", stream=True),
+        Port("tv_uniform", "float", stream=True),
+        Port("mean_sin2", "float", stream=True),
         Port("checkpoint", "artifact"),
         Port("final_metrics", "json"),
     ],

@@ -245,6 +245,78 @@ def g_purity_exact(states: np.ndarray, basis: Sequence[PauliWord]) -> np.ndarray
     return values.reshape(states.shape[:-1])
 
 
+# --- angle distribution -----------------------------------------------------
+
+#: Bins used by :func:`angle_stats` for the total-variation distance to uniform.
+#: TV over a histogram depends on the binning, so it is fixed here and reported
+#: rather than passed in: two runs are only comparable at the same resolution.
+TV_BINS = 36
+
+
+def angle_stats(angles: np.ndarray) -> dict[str, list[float]]:
+    r"""Describe the *shape* of an encoded angle distribution, per qubit.
+
+    The g-purity says how trainable an encoded state is; it does not say what the
+    distribution looks like, and two very different laws reach the same purity.
+    ``P_{\mathfrak g}`` for the off-diagonal algebra is built from
+    :math:`\sin^2\theta` factors, so it climbs both when the angles *spread*
+    toward uniform -- the flattening the ROADMAP predicts -- and when they *pin*
+    near :math:`\pi/2`, which is the true maximum :math:`n - 1` and the
+    configuration the unflattening manuscript notes destroys the input
+    information. Telling those apart needs the distribution, not the purity
+    (``DECISIONS.md`` D92).
+
+    Reported **per qubit**, never pooled: sites peaking at different angles average
+    into something that looks flat, which is the artefact the unflattening latent
+    -drift memo warns about.
+
+    Two cautions on reading ``tv_uniform``:
+
+    * It has a **nonzero floor set by kinematics, not by training**. The
+      ``(p_z, E)`` sites cannot leave ``(0, pi)`` and in practice sit inside about
+      ``[pi/4, 3pi/4]`` (D79), so those qubits can never be uniform however the
+      front end moves them. Compare a run against the *raw* arm's value at the same
+      site, not against zero.
+    * It depends on :data:`TV_BINS` and on how many angles went in.
+
+    Args:
+        angles: ``(n_samples, n_qubits)`` encoded angles, any real values; they are
+            wrapped into ``[0, 2 pi)`` first.
+
+    Returns:
+        ``tv_uniform``, ``mean_sin2`` and ``circular_variance``, each a list with
+        one entry per qubit, plus ``n_samples`` and ``n_bins`` as one-element lists
+        so the record stays json-shaped.
+
+    Raises:
+        ValueError: If ``angles`` is not two-dimensional or has no samples.
+    """
+    angles = np.asarray(angles, dtype=float)
+    if angles.ndim != 2:
+        raise ValueError(f"expected (n_samples, n_qubits) angles, got shape {angles.shape}")
+    if angles.shape[0] == 0:
+        raise ValueError("no angles to describe")
+
+    wrapped = np.mod(angles, 2.0 * np.pi)
+    edges = np.linspace(0.0, 2.0 * np.pi, TV_BINS + 1)
+    uniform = 1.0 / TV_BINS
+
+    tv, mean_sin2, circular = [], [], []
+    for site in range(wrapped.shape[1]):
+        column = wrapped[:, site]
+        density = np.histogram(column, bins=edges)[0] / len(column)
+        tv.append(float(0.5 * np.abs(density - uniform).sum()))
+        mean_sin2.append(float(np.mean(np.sin(column) ** 2)))
+        circular.append(float(1.0 - abs(np.exp(1j * column).mean())))
+    return {
+        "tv_uniform": tv,
+        "mean_sin2": mean_sin2,
+        "circular_variance": circular,
+        "n_samples": [float(wrapped.shape[0])],
+        "n_bins": [float(TV_BINS)],
+    }
+
+
 # --- encoding comparison ----------------------------------------------------
 
 #: Feature encoding -> (dataset array, angle columns) for :func:`encoding_purity`.

@@ -36,7 +36,13 @@ from flax import nnx
 from jax.typing import ArrayLike
 from qml_essentials.model import Model
 
-from partiqledtr.analysis import ANSAETZE, G_PURITY_BY_ANSATZ, dla_basis, g_purity_exact
+from partiqledtr.analysis import (
+    ANSAETZE,
+    G_PURITY_BY_ANSATZ,
+    angle_stats,
+    dla_basis,
+    g_purity_exact,
+)
 from partiqledtr.models.gnn import _edge_mask, edge2node, node2edge
 
 __all__ = [
@@ -344,6 +350,24 @@ class QFMConstellation(nnx.Module):
             Scalar mean g-purity over the real edges.
         """
         return jnp.mean(G_PURITY_BY_ANSATZ[self.ansatz](self.edge_angles(x, mask)))
+
+    def angle_stats(self, x: jax.Array, mask: jax.Array) -> dict[str, list[float]]:
+        """Shape of the angle distribution this arm's first block encodes, per qubit.
+
+        The companion to :meth:`g_purity`, and the reason both are needed: a purity
+        can rise because the angles spread toward uniform or because they pin near
+        ``pi/2``, and those are opposite in what they do to the input information
+        (``DECISIONS.md`` D92). ``mean_sin2`` separates them -- it tends to 0.5 for
+        a uniform law, to 1 when pinned at ``pi/2`` and to 0 when clustered at zero.
+
+        Args:
+            x: ``(B, L, 4)`` four-vectors.
+            mask: Boolean ``(B, L)``, True on real particles.
+
+        Returns:
+            The per-qubit record of :func:`partiqledtr.analysis.angle_stats`.
+        """
+        return angle_stats(np.asarray(self.edge_angles(x, mask)))
 
     def g_purity_exact(self, x: jax.Array, mask: jax.Array) -> float:
         """Mean g-purity of the state the first QFM block actually prepares.
