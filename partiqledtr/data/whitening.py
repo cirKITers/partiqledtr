@@ -34,6 +34,9 @@ from partiqledtr.models.qfm import N_QUBITS, pair_polar
 
 __all__ = ["fit_whitening", "purity_of_rotation", "sample_rotation"]
 
+#: Encodings that carry four-vectors, hence the ones a rotation can be fitted on.
+_ROTATABLE = ("cartesian", "legacy")
+
 
 def sample_rotation(rng: np.random.Generator, dim: int = 4) -> np.ndarray:
     """Draw one Haar-distributed rotation from ``SO(dim)``.
@@ -202,7 +205,9 @@ def whitening_rotation(
             be the one the model trains on: a rotation accepted on one encoding's
             four-vectors says nothing about another's, and fitting on ``cartesian``
             while training on ``legacy`` measurably lowered the purity it was meant
-            to raise (``DECISIONS.md`` D91).
+            to raise (``DECISIONS.md`` D91). An encoding with no four-vectors falls
+            back to ``cartesian`` and is marked inapplicable rather than failing the
+            run, since nothing will apply it (D94).
         whitening_seed: Seed for the rotation draws and the pair sampling. Its own
             port rather than the run seed, so the acceptance rate can be swept
             without also re-seeding the model.
@@ -216,14 +221,16 @@ def whitening_rotation(
 
     if encoding not in ENCODINGS:
         raise ValueError(f"unknown encoding {encoding!r}; valid encodings are {list(ENCODINGS)}")
-    if encoding == "angles":
-        raise ValueError(
-            "the whitening arm rotates four-vectors, so it needs 'cartesian' or "
-            "'legacy'; the 'angles' encoding drops |p| (D56)"
-        )
+    # This node runs for every run so its acceptance report is always recorded, and a
+    # classical arm ignores the rotation entirely -- so an encoding with no
+    # four-vectors to rotate must not fail the run, it just has nothing to fit on.
+    # Falling back keeps D91's substance: wherever the rotation is *applied*, it was
+    # fitted on the very features the circuit encodes, because only the QFM applies
+    # it and the QFM accepts four-vectors alone (D56, D94).
+    fitted_on = encoding if encoding in _ROTATABLE else "cartesian"
     split = load_split(dataset_train)
     rotation, report = fit_whitening(
-        split[f"features_{encoding}"],
+        split[f"features_{fitted_on}"],
         split["n_fsps"],
         seed=whitening_seed,
         max_draws=max_draws,
@@ -233,5 +240,12 @@ def whitening_rotation(
     np.savez(buffer, allow_pickle=False, rotation=rotation)
     return {
         "whitening": fluksio.save_artifact(buffer.getvalue(), "whitening.npz"),
-        "whitening_report": {**report, "encoding": encoding},
+        "whitening_report": {
+            **report,
+            "encoding": encoding,
+            "fitted_on": fitted_on,
+            # False means the rotation is a formality for this run: nothing will
+            # apply it, because the encoding carries no four-vectors.
+            "applicable": fitted_on == encoding,
+        },
     }
