@@ -29,6 +29,21 @@ This formulates the main hypothesis:
 > On floor-free polynomial-DLA ansaetze the encoder-channel rescue and g-purity dynamics predicted by the unflattening work are observable on naturally clustered kinematic inputs, while floored ansaetze show the predicted indifference.
 > The ansatz FCC (fourier-fingerprints) acts as an inductive-bias descriptor for the task.
 
+Measured so far (`RESEARCH.md` §1, §7-8), the first two clauses need amending:
+
+- kinematic inputs are **not** naturally clustered under either sensible encoding;
+  the clustered regime is reached only under the prior work's `p*E*pi` encoding,
+  which is now a deliberate control arm;
+- the rescue is real and reproduces across seeds, but it is **purity recovery, not
+  flattening**: the angle law does not become uniform, and the direction of the
+  total-variation change is seed-dependent;
+- the recovered purity **does not buy reconstruction accuracy**, so the
+  contribution is mechanistic rather than a performance claim.
+
+The floored-ansatz clause holds, and sharply: the front end moves the distribution
+just as far there, the floor absorbs all of it, and the task gets worse. The FCC
+clause is untested -- that is phase 5.
+
 Note:
 Fluksio is a relatively new framework (developed by myself).
 Documentation is available here: https://docs.fluksio.com/getting-started/data-science/
@@ -59,9 +74,10 @@ Pauli-Z plus a shared linear head, so nothing scales exponentially.
 
 Two flows: `generate` runs the phase-space simulation once, `train` consumes its
 artifacts and is the part a sweep repeats. Fluksio caches node results on their
-inputs, so re-running an unchanged stage is nearly free -- though a cached run
-replays no metric series, so pass `--no-cache` when a training curve matters
-(`NOTEPAD.md`).
+inputs, so re-running an unchanged stage is nearly free. `fit` opts out
+(`cache=False`, D93): its fingerprint does not cover `train_model`, where the loop
+lives, so editing the loop would otherwise replay pre-change numbers silently --
+which it did once, and cost a re-run to notice.
 
 **Read `RESEARCH.md` before designing runs** -- the measurements there revise one of
 the premises below (see *Theoretical Motivation*), and `DECISIONS.md` records why
@@ -103,6 +119,8 @@ run = train.submit(
 print(run.result["dla_report"])  # recorded before training
 print(run.result["test_metrics"])  # overall / known / unknown
 print(run.metrics("train.g_purity"))  # the phase-4 observable
+print(run.metrics("train.mean_sin2"))  # what the angle law is doing (§8)
+print(run.result["final_metrics"]["angle_stats_final"])  # per qubit, never pooled
 ```
 
 The arms, all selected through flow inputs:
@@ -111,6 +129,7 @@ The arms, all selected through flow inputs:
 | --- | --- | --- |
 | `model` | `gnn`, `mlp`, `qfm` | `qfm` requires `encoding="cartesian"` |
 | `ansatz` | `XY_Brickwork`, `Matchgate`, `Circuit_19` | quantum arm only |
+| `lr` | float | `1e-2` is where the rescue appears (§7); the default `1e-3` is below it |
 | `frontend` | `none`, `mlp` | `mlp` is the learned elementwise front end |
 | `whiten` | `false`, `true` | fixed isotropic preconditioning |
 | `encoding` | `angles`, `cartesian`, `legacy` | `cartesian` keeps `\|p\|`, needed by `qfm` |
