@@ -430,3 +430,49 @@ def test_checkpoint_round_trip_preserves_the_whitening_arm():
     x = jnp.asarray(np.random.default_rng(1).normal(size=(2, L, 4)))
     mask = jnp.ones((2, L), dtype=bool)
     np.testing.assert_allclose(module(x, mask), rebuilt(x, mask), atol=1e-6)
+
+
+def test_quantum_arm_streams_the_angle_distribution_beside_the_purity():
+    """Both observables have to travel, because either alone is ambiguous (D92).
+
+    The purity says how trainable the encoded state is; the angle statistics say
+    what its distribution looks like, which is what separates a rescue that spreads
+    the angles from one that pins them at pi/2.
+    """
+    split = _split()
+    cartesian = dict(split)
+    cartesian["features_cartesian"] = np.concatenate(
+        [split["features_angles"], np.ones((len(split["lcag"]), L, 1), np.float32)], axis=-1
+    )
+    loop = train_model(cartesian, cartesian, {"n_classes": C}, seed=SEED, model="qfm",
+                       encoding="cartesian", epochs=2, batch_size=N, lr=1e-3)  # fmt: skip
+    records = []
+    while True:
+        try:
+            records.append(next(loop))
+        except StopIteration as stop:
+            _, final = stop.value
+            break
+
+    assert {"g_purity", "tv_uniform", "mean_sin2"} <= set(records[0])
+    # Per-site vectors ride in final_metrics; the stream carries only the site mean.
+    for key in ("angle_stats_initial", "angle_stats_final"):
+        assert len(final[key]["tv_uniform"]) == 4
+        assert len(final[key]["mean_sin2"]) == 4
+    assert final["angle_stats_final"]["n_bins"] == [36.0]
+
+
+def test_classical_arm_omits_the_angle_ports():
+    """A model that encodes no quantum state has no angle distribution to report."""
+    split = _split()
+    loop = train_model(split, split, {"n_classes": C}, seed=SEED, dim=8, n_blocks=1,
+                       epochs=1, batch_size=N)  # fmt: skip
+    records = []
+    while True:
+        try:
+            records.append(next(loop))
+        except StopIteration as stop:
+            _, final = stop.value
+            break
+    assert not {"g_purity", "tv_uniform", "mean_sin2"} & set(records[0])
+    assert "angle_stats_final" not in final

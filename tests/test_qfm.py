@@ -311,3 +311,17 @@ def test_whitening_accepts_a_nested_list_so_a_checkpoint_can_carry_it():
 
     with pytest.raises(ValueError, match=r"\(4, 4\)"):
         _model(whitening=np.eye(3).tolist())
+
+
+def test_whitening_node_does_not_fail_a_run_it_has_nothing_to_fit_on():
+    """A classical arm ignores the rotation, so it must not be able to fail the run.
+
+    ``whitening_rotation`` runs for every run so its acceptance report is always
+    recorded. Making it reject an encoding without four-vectors broke every
+    classical run instead (D94); the fallback keeps D91's substance, because only
+    the QFM applies the rotation and the QFM accepts four-vectors alone.
+    """
+    from partiqledtr.data.whitening import _ROTATABLE
+
+    assert "angles" not in _ROTATABLE
+    assert set(_ROTATABLE) == {"cartesian", "legacy"}

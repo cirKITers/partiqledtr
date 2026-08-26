@@ -15,6 +15,7 @@ from qml_essentials.algebra import (
 from partiqledtr.analysis import (
     ANSAETZE,
     G_PURITY_BY_ANSATZ,
+    angle_stats,
     ansatz_generators,
     dla_basis,
     dla_check,
@@ -338,3 +339,55 @@ def test_exact_purity_matches_the_closed_form_on_a_product_state():
     for ansatz, closed in G_PURITY_BY_ANSATZ.items():
         exact = g_purity_exact(states, dla_basis(ansatz, 4))
         np.testing.assert_allclose(exact, np.asarray(closed(jnp.asarray(angles))), atol=1e-6)
+
+
+def test_angle_stats_separates_uniform_pinned_and_clustered():
+    """The discriminator the g-purity cannot provide (D92).
+
+    A purity rises both when angles spread toward uniform and when they pin near
+    pi/2 -- the true maximum, and the configuration that destroys the input
+    information. Both look identical in total variation (~0.94 here), so
+    ``mean_sin2`` is what tells them apart: 0.5 uniform, 1 pinned, 0 clustered.
+    """
+    rng = np.random.default_rng(0)
+    uniform = rng.uniform(0.0, 2.0 * np.pi, (4000, 4))
+    pinned = np.pi / 2 + rng.normal(0.0, 0.05, (4000, 4))
+    clustered = rng.normal(0.0, 0.05, (4000, 4))
+
+    stats = {
+        name: angle_stats(a)
+        for name, a in (("uniform", uniform), ("pinned", pinned), ("clustered", clustered))
+    }
+
+    assert stats["uniform"]["tv_uniform"][0] < 0.1
+    assert stats["pinned"]["tv_uniform"][0] > 0.8
+    assert stats["clustered"]["tv_uniform"][0] > 0.8
+    # ... and the two high-TV laws are opposite in what they do to the input.
+    assert stats["uniform"]["mean_sin2"][0] == pytest.approx(0.5, abs=0.05)
+    assert stats["pinned"]["mean_sin2"][0] > 0.95
+    assert stats["clustered"]["mean_sin2"][0] < 0.05
+
+
+def test_angle_stats_is_per_site_not_pooled():
+    """Sites peaking at different angles must not average into a flat-looking law.
+
+    This is the artefact the unflattening latent-drift memo warns about, and the
+    reason the record is a list per qubit rather than one number.
+    """
+    rng = np.random.default_rng(1)
+    # Two sites, each sharply peaked, but at different places.
+    angles = np.stack([rng.normal(0.5, 0.05, 4000), rng.normal(4.0, 0.05, 4000)], axis=-1)
+    stats = angle_stats(angles)
+
+    assert len(stats["tv_uniform"]) == 2
+    assert all(tv > 0.8 for tv in stats["tv_uniform"])
+    # Pooled, the same samples would look far closer to uniform than either site is.
+    pooled = angle_stats(angles.reshape(-1, 1))
+    assert pooled["tv_uniform"][0] < min(stats["tv_uniform"])
+
+
+def test_angle_stats_rejects_malformed_input():
+    with pytest.raises(ValueError, match="n_qubits"):
+        angle_stats(np.zeros(10))
+    with pytest.raises(ValueError, match="no angles"):
+        angle_stats(np.zeros((0, 4)))
