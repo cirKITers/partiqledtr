@@ -679,8 +679,8 @@ wheels = [
 
 [[package]]
 name = "fluksio"
-version = "0.1.3"
-source = { registry = "https://pypi.org/simple" }
+version = "0.1.4"
+source = { git = "https://git.stroblme.de/Fluksio/app?subdirectory=backend&rev=e2f97d36e428a0448dd79e0ab1ae7b750801270e#e2f97d36e428a0448dd79e0ab1ae7b750801270e" }
 dependencies = [
     { name = "aiomqtt" },
     { name = "alembic" },
@@ -708,21 +708,13 @@ dependencies = [
     { name = "tenacity" },
     { name = "uv" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/48/44/f81ec0d50f735d6794d770cabe27554fd0bd8070d0594d09784efe932be8/fluksio-0.1.3.tar.gz", hash = "sha256:ff25c5c8cd285a3e9b8c06d7cf7451e87c4928b06ce37aa2757d985fd8254b2d", size = 385796, upload-time = "2026-08-26T14:16:12.816Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/44/fa/44b896f2120e99b7138536c0c4cd334bc99262c4c2a77b5eed71c66dc1f5/fluksio-0.1.3-py3-none-any.whl", hash = "sha256:872af8d5404cd863fa0edd88df099982913d455c4be2e507f920f3b822354d1a", size = 329683, upload-time = "2026-08-26T14:16:10.392Z" },
-]
 
 [[package]]
 name = "fluksio-worker"
-version = "0.1.3"
-source = { registry = "https://pypi.org/simple" }
+version = "0.2.0"
+source = { git = "https://git.stroblme.de/Fluksio/app?subdirectory=worker&rev=e2f97d36e428a0448dd79e0ab1ae7b750801270e#e2f97d36e428a0448dd79e0ab1ae7b750801270e" }
 dependencies = [
     { name = "websockets" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/16/d5/af64439eb334c891155bb6abfd27f36ee3eda424db66518f140ece58c01f/fluksio_worker-0.1.3.tar.gz", hash = "sha256:7fdd619b47a40d51f4ddbb5cef292ee13e9f1347afcebd45edae8c2ca4e67ec1", size = 23648, upload-time = "2026-08-26T14:16:08.228Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/0d/99/03caeb4140a9f841ded0fa192359f3bff4594734ca1bc659fb5e84e218ae/fluksio_worker-0.1.3-py3-none-any.whl", hash = "sha256:6ed513b239a697dedc925de57cce8304ba798f3ccd29bc88568ea4f842f1c12a", size = 25618, upload-time = "2026-08-26T14:16:06.945Z" },
 ]
 
 [[package]]
@@ -1382,7 +1374,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "flax", specifier = ">=0.12.9" },
-    { name = "fluksio", specifier = ">=0.1.2" },
+    { name = "fluksio", git = "https://git.stroblme.de/Fluksio/app?subdirectory=backend&rev=e2f97d36e428a0448dd79e0ab1ae7b750801270e" },
     { name = "matplotlib", specifier = ">=3.9" },
     { name = "numpy", specifier = ">=2.3" },
     { name = "optax", specifier = ">=0.2.8" },
