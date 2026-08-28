@@ -60,7 +60,7 @@ def _logit_batch(seed: int = 1, n_fsps: int = L - 1):
 def _model(seed: int = SEED, **kwargs):
     settings: dict[str, Any] = {
         "model": "gnn",
-        "frontend": "none",
+        "preconditioner": "none",
         "n_features": F,
         "n_classes": C,
         "dim": 8,
@@ -138,7 +138,7 @@ def test_overfits_a_tiny_batch(capsys):
     assert final["config"] == {
         "encoding": "angles",
         "model": "gnn",
-        "frontend": "none",
+        "preconditioner": "none",
         "n_features": F,
         "n_classes": C,
         "dim": 16,
@@ -168,7 +168,7 @@ def test_train_model_rejects_a_split_smaller_than_a_batch():
 
 def test_checkpoint_round_trip():
     split = _split()
-    saved, loaded = _model(frontend="mlp"), _model(frontend="mlp", seed=SEED + 7)
+    saved, loaded = _model(preconditioner="mlp"), _model(preconditioner="mlp", seed=SEED + 7)
     before = _call(saved, split)
     assert not jnp.array_equal(_call(loaded, split), before)
 
@@ -218,18 +218,18 @@ def test_batches_are_deterministic_disjoint_and_drop_the_tail():
 def test_build_model_rejects_unknown_registry_keys():
     with pytest.raises(ValueError, match="unknown model 'nri'; valid models are"):
         _model(model="nri")
-    with pytest.raises(ValueError, match="unknown frontend 'linear'; valid frontends are"):
-        _model(frontend="linear")
+    with pytest.raises(ValueError, match="unknown preconditioner 'linear'"):
+        _model(preconditioner="linear")
     # The message names the keys that would have worked.
     with pytest.raises(ValueError, match=r"gnn.*mlp"):
         _model(model="nri")
     with pytest.raises(ValueError, match=r"none"):
-        _model(frontend="linear")
+        _model(preconditioner="linear")
 
 
-def test_build_model_attaches_the_frontend_and_honours_n_blocks():
-    assert _model(frontend="none").frontend is None
-    assert _model(frontend="mlp").frontend is not None
+def test_build_model_attaches_the_preconditioner_and_honours_n_blocks():
+    assert _model(preconditioner="none").preconditioner is None
+    assert _model(preconditioner="mlp").preconditioner is not None
     assert len(_model(n_blocks=4).blocks) == 4
     # MLPBaseline takes no n_blocks; passing one must not raise.
     assert _model(model="mlp", n_blocks=4) is not None
@@ -359,25 +359,25 @@ def test_node_payloads_are_port_legal():
             stream.check(rejected)
 
 
-def test_frontend_does_not_reseed_the_model():
-    """Attaching a front end must add one, not re-initialise everything (D84).
+def test_preconditioner_does_not_reseed_the_model():
+    """Attaching a preconditioner must add one, not re-initialise everything (D84).
 
-    Built from a single rng stream, the front end's own draws shift every later
+    Built from a single rng stream, the preconditioner's own draws shift every later
     draw, so the raw and learned arms of the phase-4 study would have differed by a
-    full re-initialisation as well as by the front end -- a confound in exactly the
+    full re-initialisation as well as by the preconditioner -- a confound in exactly the
     comparison the study is about.
     """
     common: dict[str, Any] = {"model": "gnn", "n_features": F, "n_classes": C, "dim": 8, "seed": 3}
-    plain = build_model(frontend="none", **common)
-    with_frontend = build_model(frontend="mlp", **common)
+    plain = build_model(preconditioner="none", **common)
+    with_preconditioner = build_model(preconditioner="mlp", **common)
 
-    attached = dict(nnx.to_flat_state(nnx.state(with_frontend, nnx.Param)))
+    attached = dict(nnx.to_flat_state(nnx.state(with_preconditioner, nnx.Param)))
     shared = [
         (path, leaf)
         for path, leaf in nnx.to_flat_state(nnx.state(plain, nnx.Param))
-        if path[0] != "frontend"
+        if path[0] != "preconditioner"
     ]
-    assert shared, "the baseline must have parameters outside the front end"
+    assert shared, "the baseline must have parameters outside the preconditioner"
     for path, leaf in shared:
         np.testing.assert_array_equal(np.asarray(leaf[...]), np.asarray(attached[path][...]))
 
@@ -392,9 +392,9 @@ def test_parameter_matched_arm_is_derived_not_asserted():
 
     from partiqledtr.models import matched_dim, n_params
 
-    quantum = build_model(model="qfm", frontend="none", n_features=4, n_classes=C)
+    quantum = build_model(model="qfm", preconditioner="none", n_features=4, n_classes=C)
     target = n_params(quantum)
-    build = partial(build_model, model="gnn", frontend="none", n_features=4, n_classes=C)
+    build = partial(build_model, model="gnn", preconditioner="none", n_features=4, n_classes=C)
 
     dim = matched_dim(target, build, n_blocks=3)
     matched = n_params(build(dim=dim, n_blocks=3))
@@ -415,7 +415,7 @@ def test_checkpoint_round_trip_preserves_the_whitening_arm():
     rotation = sample_rotation(np.random.default_rng(SEED))
     config: dict[str, Any] = {
         "model": "qfm",
-        "frontend": "none",
+        "preconditioner": "none",
         "n_features": 4,
         "n_classes": C,
         "whitening": rotation.tolist(),

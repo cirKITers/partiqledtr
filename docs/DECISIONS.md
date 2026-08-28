@@ -273,8 +273,8 @@ Chronological within sections. `[user]` marks decisions the user confirmed expli
 
 - **D31 The model interface is a call convention plus a registry, not a base
   class.** `__call__(features (B,L,F), mask (B,L) bool) -> logits (B,L,L,C)`,
-  symmetric in the two `L` axes; a front end is `(...,F) -> (...,F)`.
-  `MODELS` / `FRONTENDS` in `partiqledtr/models/__init__.py` are the
+  symmetric in the two `L` axes; a preconditioner is `(...,F) -> (...,F)`.
+  `MODELS` / `PRECONDITIONERS` in `partiqledtr/models/__init__.py` are the
   string-selectable extension points (phase 3 adds `"qfm"`, phase 4 `"whiten"`).
   An ABC would add a file and enforce nothing that the first call does not.
 - **D32 `models/__init__.py` *does* re-export, unlike `data/__init__.py` (D8).**
@@ -304,7 +304,7 @@ Chronological within sections. `[user]` marks decisions the user confirmed expli
   silently corrupts validation metrics. Ceiling: the unconstrained arm is
   unregularised. Marked `# ponytail:` in `MLPBlock`.
 - **D38 `MLPBaseline` has a strictly linear head, per the ROADMAP's wording
-  ("front end + linear head, no QFM").** It is the phase-3 quantum model with
+  ("preconditioner + linear head, no QFM").** It is the phase-3 quantum model with
   everything quantum deleted, which is what makes it the right control: 28
   parameters at `F=3, C=4`, deliberately weak, there to establish the floor. An
   earlier draft gave it the GNN's nonlinear pair MLP, which isolates *message
@@ -331,7 +331,7 @@ Chronological within sections. `[user]` marks decisions the user confirmed expli
   the predicted indifference. `Circuit_19` saturates `su(2^n)`, where the g-purity
   is `2^n - 1` for *every* pure state: **the arm is input-distribution independent
   by construction**, with the textbook `1/(2^n + 1)` variance. It therefore cannot
-  show front-end effects at all -- consistent with the ROADMAP calling it a legacy
+  show preconditioner effects at all -- consistent with the ROADMAP calling it a legacy
   bridge with "no theoretical protection", and worth stating explicitly in the
   paper rather than presenting it as a null result.
 - **D52 `n_diag_words`, the count of Z-only closure words, is the
@@ -385,7 +385,7 @@ Chronological within sections. `[user]` marks decisions the user confirmed expli
   parity observable) would make the logits rank-1 over `C > 2` classes and is
   kept only as an ordinal-regression ablation.
 - **D27 QFMs are the edge function of the message passing; every classical part
-  is particle-local.** Front end is elementwise per feature, aggregation is a
+  is particle-local.** Preconditioner is elementwise per feature, aggregation is a
   parameter-free masked mean, the node update is a per-node linear map. This is
   the strict reading of "cross-particle structure must come from the quantum
   part".
@@ -394,7 +394,7 @@ Chronological within sections. `[user]` marks decisions the user confirmed expli
   across blocks is not required for it and would constrain two functions that do
   different jobs. Shared-across-blocks stays a one-line ablation.
 - **D29 The Matchgate x learned-MLP cell is deliberately runnable.** The theory
-  predicts a learned front end is useless-or-harmful on a floored ansatz; that is
+  predicts a learned preconditioner is useless-or-harmful on a floored ansatz; that is
   a falsifiable prediction, so the cell must be executable. Default configurations
   pair Matchgate with fixed whitening.
 - **D55 The encoding contract is verified by measurement, not assumed.** With
@@ -452,7 +452,7 @@ Chronological within sections. `[user]` marks decisions the user confirmed expli
   by whitening -- clustering actually *maximises* it (4.00 against the uniform mean
   `n - 1 + 2^-n = 3.06`) and whitening pulls it *down* toward that mean. The
   prediction being confirmed is that it never collapses, so trainability is
-  protected either way and a front end has nothing to rescue. Reporting this as
+  protected either way and a preconditioner has nothing to rescue. Reporting this as
   "unchanged" would misstate the result.
 - **D61 MEASURED, AND IT REVISES A ROADMAP PREMISE: the new encodings do not put
   this task in the barren regime -- the old one did.** Mean off-diagonal g-purity
@@ -521,8 +521,8 @@ Chronological within sections. `[user]` marks decisions the user confirmed expli
   believed it had set 2. Anything introspecting an `nnx.Module` class must read
   `__init__` directly. This is also how `ansatz`, `n_layers` and `whitening` reach
   the quantum arm without the registry needing per-model special cases.
-- **D71 A model may declare `frontend_features` when its front end does not see
-  the raw features.** The quantum arm's front end acts on the two pair-polar
+- **D71 A model may declare `preconditioner_features` when its preconditioner does not see
+  the raw features.** The quantum arm's preconditioner acts on the two pair-polar
   angles, not the four input components, so building it at `F = 4` would raise a
   shape error at the first call. The attribute keeps that knowledge in the model
   that owns it rather than in the trainer.
@@ -580,7 +580,7 @@ been written down as a result.
   therefore a property of data plus encoding, not of a trained circuit.
   Consequence: every purity number in RESEARCH.md predates the fix and has been
   re-measured -- and the re-measurement changed a reported result, not just its
-  scale. Under the corrected convention the learned front end drives the XY arm's
+  scale. Under the corrected convention the learned preconditioner drives the XY arm's
   purity *down* (1.247 -> 0.178 -> 0.436 over 15 epochs) rather than up across
   `mu_4` as previously written, and on the clustered legacy arm it collapses by an
   order of magnitude while accuracy degrades. Provisional at this scale, but it is
@@ -608,8 +608,8 @@ been written down as a result.
   three of the nine phase-4 cells. Sixteen floats as json keeps the checkpoint
   self-describing (D68) and needs no second artifact; `QFMConstellation` now
   coerces before validating so a nested list is accepted.
-- **D84 the front end gets its own rng stream.** Built from the model's, its three
-  draws shifted every later draw, so `frontend="mlp"` did not merely attach a front
+- **D84 the preconditioner gets its own rng stream.** Built from the model's, its three
+  draws shifted every later draw, so `preconditioner="mlp"` did not merely attach a front
   end -- it re-initialised the whole model. The raw-versus-learned comparison is
   the phase-4 experiment, so an initialisation difference sitting inside it is a
   confound, not a detail. Offset `1 << 20`, and a test pins the shared parameters
@@ -718,7 +718,7 @@ been written down as a result.
      memo warns about; a test pins that the pooled reading is misleadingly low.
   2. **`tv_uniform` has a floor set by kinematics, not by training.** The
      `(p_z, E)` sites cannot leave `(0, pi)` and sit inside about `[pi/4, 3pi/4]`
-     (D79), so those qubits can never be uniform however the front end moves them.
+     (D79), so those qubits can never be uniform however the preconditioner moves them.
      Read a run against the *raw* arm at the same site, not against zero.
   3. **`TV_BINS` is fixed at 36 and reported.** A total variation over a histogram
      is meaningless without its resolution, and two runs only compare at the same one.
@@ -754,18 +754,18 @@ been written down as a result.
   General lesson worth keeping: **validate at the point of use, not at the point of
   production**, when a node produces something optional for the rest of the flow.
 
-- **D95 `[user]` the front end stays frequency-neutral, and trainable frequencies stay
+- **D95 `[user]` the preconditioner stays frequency-neutral, and trainable frequencies stay
   out of every arm for now.** The question came up whether the MLP already gives
   trainable frequencies or a richer spectrum "for free". It does not, and the
   distinction matters enough to record:
 
-  * A trainable frequency is a *linear* rescale `RY(w x)`. The front end is a
+  * A trainable frequency is a *linear* rescale `RY(w x)`. The preconditioner is a
     nonlinear elementwise residual warp, so the composite is not a trigonometric
     polynomial in `x` at all -- it has no discrete spectrum to speak of. In `phi`
     the circuit's frequencies are untouched.
   * It cannot reduce spectral redundancy either. The degeneracy `Omega-hat` is fixed
-    by the encoding generators and the ansatz; the front end changes which input
-    maps to which `phi`, not how many degenerate terms exist. A nonlinear front end
+    by the encoding generators and the ansatz; the preconditioner changes which input
+    maps to which `phi`, not how many degenerate terms exist. A nonlinear preconditioner
     actually *breaks* the framework the FCC is defined in, which is why the
     fingerprints manuscript lists it as an open question rather than a tool.
   * It is elementwise per feature and applied before `node2edge`, so it could not
@@ -824,11 +824,11 @@ trains and every observable streams, far too few to mean anything scientifically
 | MLP-only control | 28 | 1.352 -> 0.821 | 0.352 | 0.385 | n/a |
 | QFM XY raw | 70 | 1.102 -> 0.840 | 0.417 | 0.794 | 0.883 (flat) |
 | QFM XY whitened | 70 | 1.095 -> 0.833 | 0.390 | 0.434 | 0.828 (flat) |
-| QFM XY + learned front end | 166 | 0.969 -> 0.828 | 0.376 | 0.642 | **0.714 -> 0.930** |
+| QFM XY + learned preconditioner | 166 | 0.969 -> 0.828 | 0.376 | 0.642 | **0.714 -> 0.930** |
 | QFM Matchgate whitened | 76 | 1.048 -> 0.831 | 0.389 | 0.737 | 3.055 (flat) |
 | QFM Circuit_19 raw | 106 | 0.997 -> 0.823 | 0.357 | 0.326 | 15.000 (flat) |
 
-The one row that already says something: with a **learned** front end the XY arm's
+The one row that already says something: with a **learned** preconditioner the XY arm's
 g-purity *rises* during training, from below `mu_4 = 0.8125` to above it, while
 every fixed-encoding arm is flat by construction. That is the rescue dynamics the
 unflattening work predicts, observable in this pipeline. Whether it survives on

@@ -25,9 +25,9 @@ a quantum-versus-classical question.
 
 ## 2. Two mechanisms pin the encoded distribution -- and what they pin is the *spread*
 
-*(figure 2, `figures/fig2_frontend_channel.csv`)*
+*(figure 2, `figures/fig2_preconditioner_channel.csv`)*
 
-A trained front end is the only thing in this architecture that can move the encoded
+A trained preconditioner is the only thing in this architecture that can move the encoded
 angle distribution. What varies across arms is not how far it moves on average but
 **how reproducibly** -- mean standard deviation of the end purity over 10 seeds, in
 units of the arm's own uniform-prior mean:
@@ -41,9 +41,9 @@ units of the arm's own uniform-prior mean:
 The phase-4 baseline `ham-dia` starts at 1.61 and its ten seeds end anywhere in
 **[0.01, 1.91]** -- four land at or below 0.14, an annihilated state, while two end
 *above* where they started. `Circuit_19` returns exactly 1.000 on all ten, because
-`P_g = 2^n - 1` for every pure state and no front end can change it.
+`P_g = 2^n - 1` for every pure state and no preconditioner can change it.
 
-So the front end on a floor-free Hamming arm is not a preconditioner but an
+So the preconditioner on a floor-free Hamming arm is not a preconditioner but an
 **unconstrained perturbation**: it can destroy the encoded state or amplify it, and
 which one happens is the seed. A dissociated encoding suppresses that by 6x and a
 DLA floor by 13x. Both suppressions are predicted; the manuscript names the second
@@ -54,7 +54,7 @@ task. The variance law is `Var = P_g(rho) P_g(O) / dim g`, which needs the obser
 inside the algebra; ours is per-qubit Pauli-Z, and single-qubit Z is **not** in the DLA
 of any XY arm (0/4 on `XY_Brickwork`, `XY_Ring` and `XY_AllPairs`; only `Circuit_19`,
 saturating `su(2^n)`, contains it). So `P_g(O) = 0` exactly on the floor-free arms, and
-the front end's effect on the encoded state falls in the sector the theory says "only
+the preconditioner's effect on the encoded state falls in the sector the theory says "only
 shifts the mean". The manuscript's own isolated experiment reads `XX + YY` on a bond for
 the off-diagonal arm and Pauli-Z only for the matchgate arm, where `d_Z = n > 0` puts Z
 in the algebra — both of its arms satisfy the premise, ours satisfies it on `Circuit_19`

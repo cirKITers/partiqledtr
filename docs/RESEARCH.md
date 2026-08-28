@@ -89,7 +89,7 @@ exactly.
 
 ### Implications
 
-- **`Circuit_19` cannot show front-end effects at all.** Its DLA saturates
+- **`Circuit_19` cannot show preconditioner effects at all.** Its DLA saturates
   `su(2^n)`, where the g-purity is `2^n - 1` for *every* pure state. Its loss
   variance is the textbook `1/(2^n + 1)` regardless of what the input
   distribution does. Measured: exactly 15.000 on clustered inputs and 15.000 after
@@ -100,7 +100,7 @@ exactly.
   leave its purity unchanged; it *maximises* it. Measured 3.997 on clustered
   inputs against a uniform mean of `n - 1 + 2^-n = 3.06`, with whitening pulling
   it *down* to 3.095. The confirmed prediction is that it never collapses, so
-  trainability is protected either way and a learned front end has nothing to
+  trainability is protected either way and a learned preconditioner has nothing to
   rescue. Writing "indifferent" would misstate the result.
 - **Only `XY_Brickwork` is a live experimental arm** for the input-distribution
   question. The other two are controls of different kinds: one floored, one
@@ -237,8 +237,8 @@ results. Recording them here because the correction is part of the finding:
   number depends on it -- the cells had not been run at scale -- but any
   whitened-arm test metric produced before this fix should be discarded.
 
-Also fixed, without invalidating a result: the front end no longer re-seeds the
-whole model (D84), so the raw-versus-learned comparison differs by the front end
+Also fixed, without invalidating a result: the preconditioner no longer re-seeds the
+whole model (D84), so the raw-versus-learned comparison differs by the preconditioner
 alone; and the "parameter-matched" classical baseline was off by a factor of
 sixteen (D86) and is now computed rather than asserted.
 
@@ -250,14 +250,14 @@ edge and added the controls.
 
 ### The direction of the effect is set by the learning rate
 
-What survives: the sign of the front end's effect on the encoded purity is set by
+What survives: the sign of the preconditioner's effect on the encoded purity is set by
 the step size, not by the ansatz, and `lr = 1e-2` is where the movement appears at
-all. §3's "the front end drives purity down" was an artefact of too small a step.
+all. §3's "the preconditioner drives purity down" was an artefact of too small a step.
 
 The magnitudes are not quoted here any more. They were three seeds on the subset
 D105 fixed, and `FINDINGS.md` §2 replaces them with ten seeds on a representative
 one -- where the same cell turns out to land anywhere in [0.01, 1.91], so what the
-front end does on a floor-free Hamming arm is an unconstrained perturbation rather
+preconditioner does on a floor-free Hamming arm is an unconstrained perturbation rather
 than a displacement with a direction.
 
 ### But it buys nothing on the task
@@ -266,9 +266,9 @@ At `lr = 1e-2`, legacy encoding, everything else equal:
 
 | arm | g-purity | val acc | test acc | test known / unknown |
 | --- | --- | --- | --- | --- |
-| raw (no front end) | 0.397 flat | **0.460** | **0.439** | 0.474 / 0.437 |
+| raw (no preconditioner) | 0.397 flat | **0.460** | **0.439** | 0.474 / 0.437 |
 | fixed whitening | 0.297 flat | 0.406 | 0.426 | 0.441 / 0.425 |
-| learned front end | 0.397 -> **1.032** | 0.453 | 0.394 | 0.488 / 0.388 |
+| learned preconditioner | 0.397 -> **1.032** | 0.453 | 0.394 | 0.488 / 0.388 |
 
 **The arm whose purity is rescued does not beat the arm whose purity never moves.**
 Raw matches it on validation and beats it on test. Within-run correlation between
@@ -277,7 +277,7 @@ cells (-0.81 to +0.59), so there is no coupling to point at either.
 
 That is the answer to the open question §3 raised, and it is a negative one: on
 this task, at this scale, **g-purity moves without paying**. The trainability
-obstruction the unflattening theory describes is real and the front end does lift
+obstruction the unflattening theory describes is real and the preconditioner does lift
 it -- but lifting it is not what decides how well the model reconstructs a decay
 tree.
 
@@ -288,12 +288,12 @@ tree.
 | arm | g-purity | val acc | test acc |
 | --- | --- | --- | --- |
 | raw | 3.239 flat | 0.430 | 0.443 |
-| learned front end | 3.239 -> 3.099 | 0.391 | 0.410 |
+| learned preconditioner | 3.239 -> 3.099 | 0.391 | 0.410 |
 
 The purity barely moves -- there is nothing to rescue, since the floor already
-protects it -- and the learned front end is *harmful*, costing 0.039 validation
+protects it -- and the learned preconditioner is *harmful*, costing 0.039 validation
 and 0.033 test accuracy. This is `DECISIONS.md` D29's falsifiable prediction,
-confirmed: on a floored ansatz a learned front end is useless-or-harmful, and
+confirmed: on a floored ansatz a learned preconditioner is useless-or-harmful, and
 preconditioning there should be fixed rather than learned.
 
 ### What this means for the study
@@ -308,9 +308,9 @@ preconditioning there should be fixed rather than learned.
   overstated benefit claim would be -- but it is not the "rescue improves
   reconstruction" story the ROADMAP anticipated.
 - **The learning rate is a confound that has to be reported.** One optimiser and
-  one rate drive both the front end and the circuit here. The prior work (CHEP'23)
+  one rate drive both the preconditioner and the circuit here. The prior work (CHEP'23)
   used separate learning rates for the quantum and classical parts for exactly this
-  reason. Whether the front end simply needs a different rate from the circuit --
+  reason. Whether the preconditioner simply needs a different rate from the circuit --
   rather than "a large one" -- is untested and is the obvious next experiment.
 
 ### Caveats
@@ -340,9 +340,9 @@ The second would have explained §7's flat accuracy neatly. `analysis.angle_stat
 | learned, Matchgate | 0 | 3.099 | 0.579 | 0.316 | +0.004 | +0.015 |
 
 All arms start from the same place (`sin2 = 0.341 / 0.293`, `TV = 0.406 / 0.453`),
-because the front end is the identity at epoch 0. A uniform law would read
+because the preconditioner is the identity at epoch 0. A uniform law would read
 `sin2 = 0.5`; the raw control is flat to three decimals, confirming that anything
-that moves, moves because the front end moved it.
+that moves, moves because the preconditioner moved it.
 
 **The pinning hypothesis is refuted.** `mean_sin2` rises to 0.39-0.60, i.e. toward
 the uniform value 0.5, and nowhere near the 1.0 that pinning at `pi/2` would give.
@@ -358,7 +358,7 @@ What *is* consistent is `sin2` tracking the purity almost exactly across seeds
 (correlation 0.98 over the three end states, which the closed form implies since
 it is built from those factors).
 
-So the front end moves the one moment the purity depends on toward its uniform
+So the preconditioner moves the one moment the purity depends on toward its uniform
 value, without making the distribution uniform. **That is a replication, on real
 kinematic data, of the unflattening manuscript's own latent-drift finding** -- that
 training does not converge to the uniform law, and that a pooled histogram which
@@ -368,15 +368,15 @@ the hypothesis should be restated in terms of purity recovery.
 
 ### The Matchgate row is the sharpest result here
 
-On the floored ansatz the front end moved the `phi` sites just as far as on the
+On the floored ansatz the preconditioner moved the `phi` sites just as far as on the
 live arm -- `sin2` from 0.341 to 0.579, a larger change than seed 2 managed -- and
 the purity did not follow, drifting from 3.239 to 3.099. The distribution changed;
 the observable the theory cares about did not, because the diagonal words floor it.
 And the task got *worse* (val 0.391 against 0.430 raw).
 
 That is a much stronger form of D29's prediction than §7 could state. It is not
-merely that a learned front end fails to help when the ansatz is floored: **the
-front end does the same amount of work and the floor absorbs all of it**, so the
+merely that a learned preconditioner fails to help when the ansatz is floored: **the
+preconditioner does the same amount of work and the floor absorbs all of it**, so the
 capacity spent on preconditioning is capacity taken from the task. Preconditioning
 on a floored ansatz should be fixed, not learned -- and this is the measurement
 that shows why.
@@ -743,7 +743,7 @@ per experiment, and only the second of those decides how long a sweep takes.
 
 Phase 4b's four ansatz arms are a direct test of the manuscript's own ansatz
 taxonomy on a real task, because they were chosen to span it. Measured at
-`n_qubits = 4`, `frontend=none`, three seeds, purity on the repaired subset
+`n_qubits = 4`, `preconditioner=none`, three seeds, purity on the repaired subset
 (D105):
 
 | ansatz | `dim_g` | `d_Z` | `P_g` | `P/mu_4` | `Var = P_g/dim_g` | params | acc known | perfect known |
@@ -797,7 +797,7 @@ performance. Ratio 0.047 / 0.094 / 0.235 / 1.000 against Perfect-LCAG
 
 **The arms that perform best are exactly the ones on which the phase-4 mechanism
 cannot be observed.** `XY_AllPairs` and `Circuit_19` lead on accuracy and are, by
-certificate, input-distribution indifferent -- the front-end rescue is unobservable
+certificate, input-distribution indifferent -- the preconditioner rescue is unobservable
 on them by construction, and on `Circuit_19` provably so. So the scientifically
 live arm and the best-performing arm are different arms. `XY_Ring` is the only one
 that is both floor-free and competitive on the structural metrics, which is an
@@ -821,17 +821,17 @@ not a constraint.
    step and purity falls, at `lr = 1e-2` it rises past `mu_4` and reproduces across
    seeds. The rescue does not buy task performance, which is the finding that
    matters.
-4. Does the front end need a *different* learning rate from the circuit, rather
+4. Does the preconditioner need a *different* learning rate from the circuit, rather
    than merely a large one? One optimiser drives both here, which confounds §7's
    axis; CHEP'23 split them for this reason. This is the next experiment.
 5. Does anything the task cares about track g-purity at all? §7 says no at this
    scale. If that holds up, the honest framing of the whole project is mechanistic
    rather than performance-driven, and the paper should say so up front.
 6. *(Answered in §8.)* The rescue is not `pi/2` pinning and not flattening: the
-   front end moves `sin^2` toward its uniform value without making the law uniform,
+   preconditioner moves `sin^2` toward its uniform value without making the law uniform,
    replicating the manuscript's latent-drift result on real data.
 7. Why is the TV direction seed-dependent (§8)? Three seeds is too few to say
-   whether the front end has several equally good solutions or whether one site
+   whether the preconditioner has several equally good solutions or whether one site
    type is simply easier to move. Worth `n >= 5` before it is written up.
 4. Do the DLA ratios of §2 rank final task performance, and does the FCC
    (phase 5) rank it the same way?
@@ -852,9 +852,9 @@ Done: the encoding comparison at scale (§1), the learning-rate sweep (§7), the
 `Matchgate` prediction cell (§7) and the legacy clustered arm (§7). What is left,
 in order:
 
-1. **Split the optimiser.** One learning rate drives the front end and the circuit,
+1. **Split the optimiser.** One learning rate drives the preconditioner and the circuit,
    which confounds §7's only axis. Separate rates -- CHEP'23's approach, for this
-   exact reason -- would say whether the front end needs a *different* step or
+   exact reason -- would say whether the preconditioner needs a *different* step or
    merely a large one.
 2. **Re-run the whitening arm** under D91, since the rotation it used was fitted on
    a different encoding than it was applied to.

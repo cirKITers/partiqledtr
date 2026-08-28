@@ -40,7 +40,7 @@ from partiqledtr.metrics import (
     perfect_lcag_rate,
     valid_tree_rate,
 )
-from partiqledtr.models import FRONTENDS, MODELS, n_params
+from partiqledtr.models import MODELS, PRECONDITIONERS, n_params
 
 __all__ = [
     "CONFIG_KEY",
@@ -61,9 +61,9 @@ __all__ = [
 #: joins of Python identifiers and list indices, so ``'#'`` cannot collide with one.
 CONFIG_KEY = "#config"
 
-#: Offset separating the front end's rng stream from the model's, so attaching one
+#: Offset separating the preconditioner's rng stream from the model's, so attaching one
 #: does not re-initialise the other (``DECISIONS.md`` D84).
-_FRONTEND_SEED_OFFSET = 1 << 20
+_PRECONDITIONER_SEED_OFFSET = 1 << 20
 
 #: Seed of the g-purity measurement subset. Deliberately *not* the run's seed: every
 #: arm and every seed has to measure the observable on the same events, or a purity
@@ -122,7 +122,7 @@ def batches(rng: np.random.Generator, n_events: int, batch_size: int) -> Iterato
 def build_model(
     *,
     model: str,
-    frontend: str,
+    preconditioner: str,
     n_features: int,
     n_classes: int,
     dim: int = 64,
@@ -135,7 +135,7 @@ def build_model(
     enc_reupload: str = "diagonal",
     whitening: Any = None,
 ) -> nnx.Module:
-    """Construct a model and its optional front end from the registry strings.
+    """Construct a model and its optional preconditioner from the registry strings.
 
     Optional keywords are forwarded only to classes whose ``__init__`` accepts
     them, so the registry stays the single extension point: ``n_blocks`` reaches
@@ -143,7 +143,7 @@ def build_model(
 
     Args:
         model: Key into :data:`partiqledtr.models.MODELS`.
-        frontend: Key into :data:`partiqledtr.models.FRONTENDS`; ``"none"`` feeds the
+        preconditioner: Key into :data:`partiqledtr.models.PRECONDITIONERS`; ``"none"`` feeds the
             raw features.
         n_features: Number of per-particle input features ``F``.
         n_classes: Number of LCAG classes ``C``.
@@ -162,23 +162,26 @@ def build_model(
             A nested list is accepted, which is how a checkpoint carries it (D81).
 
     Returns:
-        The constructed model, with the front end already attached.
+        The constructed model, with the preconditioner already attached.
 
     Raises:
-        ValueError: If ``model`` or ``frontend`` names no registry entry.
+        ValueError: If ``model`` or ``preconditioner`` names no registry entry.
     """
     if model not in MODELS:
         raise ValueError(f"unknown model {model!r}; valid models are {sorted(MODELS)}")
-    if frontend not in FRONTENDS:
-        raise ValueError(f"unknown frontend {frontend!r}; valid frontends are {sorted(FRONTENDS)}")
+    if preconditioner not in PRECONDITIONERS:
+        raise ValueError(
+            f"unknown preconditioner {preconditioner!r}; "
+            f"valid preconditioners are {sorted(PRECONDITIONERS)}"
+        )
 
-    # Two independent streams. Built from one, the front end's own draws would shift
-    # every later draw, so a model *with* a front end would not merely gain the front
+    # Two independent streams. Built from one, the preconditioner's own draws would shift
+    # every later draw, so a model *with* a preconditioner would not merely gain the front
     # end -- its whole parameter set would be re-initialised, and the phase-4
     # raw-versus-learned comparison would differ by an initialisation too (D84).
     rngs = nnx.Rngs(seed)
-    frontend_rngs = nnx.Rngs(seed + _FRONTEND_SEED_OFFSET)
-    frontend_cls = FRONTENDS[frontend]
+    preconditioner_rngs = nnx.Rngs(seed + _PRECONDITIONER_SEED_OFFSET)
+    preconditioner_cls = PRECONDITIONERS[preconditioner]
     cls = MODELS[model]
     # ``signature(cls)`` would resolve to the NNX metaclass' ``(*args, **kwargs)``,
     # so the check has to read ``__init__`` directly (DECISIONS.md D62).
@@ -196,14 +199,16 @@ def build_model(
         optional["whitening"] = whitening
     extra = {name: value for name, value in optional.items() if name in accepted}
 
-    # The quantum arm's front end sees its pair-polar angles, not the raw features.
-    frontend_features = getattr(cls, "frontend_features", n_features)
+    # The quantum arm's preconditioner sees its pair-polar angles, not the raw features.
+    preconditioner_features = getattr(cls, "preconditioner_features", n_features)
     return cls(
         n_features,
         n_classes,
         dim=dim,
-        frontend=(
-            None if frontend_cls is None else frontend_cls(frontend_features, rngs=frontend_rngs)
+        preconditioner=(
+            None
+            if preconditioner_cls is None
+            else preconditioner_cls(preconditioner_features, rngs=preconditioner_rngs)
         ),
         rngs=rngs,
         **extra,
@@ -437,7 +442,7 @@ def train_model(
     *,
     seed: int,
     model: str = "gnn",
-    frontend: str = "none",
+    preconditioner: str = "none",
     encoding: str = "angles",
     dim: int = 64,
     n_blocks: int = 3,
@@ -470,7 +475,7 @@ def train_model(
         meta: Dataset metadata; only ``n_classes`` is read.
         seed: Seeds parameter initialisation and the epoch shuffles.
         model: Key into :data:`partiqledtr.models.MODELS`.
-        frontend: Key into :data:`partiqledtr.models.FRONTENDS`.
+        preconditioner: Key into :data:`partiqledtr.models.PRECONDITIONERS`.
         encoding: Feature encoding to train on.
         dim: Width of the model's internal representations.
         n_blocks: Number of message-passing blocks.
@@ -512,7 +517,7 @@ def train_model(
     n_classes = int(meta["n_classes"])
     config: dict[str, Any] = {
         "model": model,
-        "frontend": frontend,
+        "preconditioner": preconditioner,
         "n_features": int(features.shape[2]),
         "n_classes": n_classes,
         "dim": int(dim),
@@ -550,8 +555,8 @@ def train_model(
             len(val_mask), size=min(n_purity_events, len(val_mask)), replace=False
         )
         purity_batch = (jnp.asarray(val_features[take]), jnp.asarray(val_mask[take]))
-        # Epoch 0, before any step. The front end starts as the identity, so this is
-        # also the raw arm's level -- without it a learned-front-end trajectory has
+        # Epoch 0, before any step. The preconditioner starts as the identity, so this is
+        # also the raw arm's level -- without it a learned-preconditioner trajectory has
         # no anchor and its first plotted point is already one epoch of training old.
         initial_purity = float(measure_purity(*purity_batch))
         initial_angles = measure_angles(*purity_batch) if measure_angles else None
@@ -635,7 +640,7 @@ def train_model(
         Port("dataset_meta", "json"),
         Port("seed", "int"),
         Port("model", "str"),
-        Port("frontend", "str"),
+        Port("preconditioner", "str"),
         Port("encoding", "str"),
         Port("dim", "int"),
         Port("n_blocks", "int"),
@@ -680,7 +685,7 @@ def fit(
     dataset_meta: dict[str, Any],
     seed: int,
     model: str = "gnn",
-    frontend: str = "none",
+    preconditioner: str = "none",
     encoding: str = "angles",
     dim: int = 64,
     n_blocks: int = 3,
@@ -706,7 +711,7 @@ def fit(
             :func:`partiqledtr.data.dataset.build_dataset`.
         seed: Seeds parameter initialisation and the epoch shuffles.
         model: Key into :data:`partiqledtr.models.MODELS`.
-        frontend: Key into :data:`partiqledtr.models.FRONTENDS`.
+        preconditioner: Key into :data:`partiqledtr.models.PRECONDITIONERS`.
         encoding: Feature encoding to train on.
         dim: Width of the model's internal representations.
         n_blocks: Number of message-passing blocks.
@@ -748,7 +753,7 @@ def fit(
         dataset_meta,
         seed=seed,
         model=model,
-        frontend=frontend,
+        preconditioner=preconditioner,
         encoding=encoding,
         dim=dim,
         n_blocks=n_blocks,

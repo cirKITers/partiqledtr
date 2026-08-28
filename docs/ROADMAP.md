@@ -33,8 +33,8 @@ Phases 1-4 and 4b are done and measured, the last at 10 seeds over 280 runs
 readout is per-qubit Pauli-Z, and single-qubit Z is **not** in the DLA of any XY arm
 (0/4 on `XY_Brickwork`, `XY_Ring`, `XY_AllPairs`; it is only in `Circuit_19`, which
 saturates `su(2^n)`). So `P_g(O) = 0` exactly on the floor-free arms: the encoded-state
-purity has no channel to our loss, and the front end's effect on it is the "only shifts
-the mean" sector of the theory. That is why the front end moves the distribution over a
+purity has no channel to our loss, and the preconditioner's effect on it is the "only shifts
+the mean" sector of the theory. That is why the preconditioner moves the distribution over a
 190-fold range and the task score barely responds — which is what phase 4c exists to fix,
 and it comes before phase 5.
 
@@ -47,11 +47,11 @@ and it comes before phase 5.
 - Architecture: constellation of small shared-weight QFMs per edge inside message passing —
   NOT the old one-qubit-per-FSP monolith. Shared weights give permutation equivariance;
   small circuits keep vmap cheap and per-QFM spectra tractable.
-- **The front end never touches the frequencies, deliberately.** It is an elementwise
+- **The preconditioner never touches the frequencies, deliberately.** It is an elementwise
   residual MLP (per-feature 1->16->1, zero-init output, `phi = x` at epoch 0): it reshapes
   per-feature marginals and cannot mix features. That is what isolates *distribution
   shaping* as the thing being measured, and it is what leaves the QFM solely responsible
-  for the frequency content. A linear front end would silently be a trainable-frequency
+  for the frequency content. A linear preconditioner would silently be a trainable-frequency
   model; a nonlinear one is a warp, which is neither a frequency change nor a way to reduce
   spectral redundancy (see phase 4b arm B).
 - **Trainable frequencies (`trainable_frequencies=True`) stay out for now**, in every arm.
@@ -91,7 +91,7 @@ Per-edge QFM via `Model.apply` (analytic expval, folded batch x edges), shared p
 across edges, per-qubit Pauli-Z readout plus a shared linear head. DLA certificate recorded
 upstream of every fit.
 
-### 4. Front-end / input-distribution study — done
+### 4. Preconditioner / input-distribution study — done
 Arms: raw | fixed whitening | learned elementwise MLP, crossed with pair-polar or the
 clustered legacy encoding. Observables: closed-form g-purity of the encoded angle
 distribution (argument `u`, never `n_layers * u`), the exact statevector purity, and the
@@ -126,7 +126,7 @@ together and need separating:
 | `binary` | scaling only, 5 | dissociated, 9-13 |
 | `ternary` | scaling only, 5 | **dissociated, 17-25** -- the arm |
 
-crossed with `frontend` in {none, mlp}, plus the clustered `legacy` encoding at
+crossed with `preconditioner` in {none, mlp}, plus the clustered `legacy` encoding at
 `hamming` and `ternary`.
 
 Prediction, stated in advance so it cannot be fitted after the fact: **better training
@@ -235,12 +235,12 @@ task at all.
   performance while every quantum arm sits near 0.45 accuracy, so this waits on **4c**
   rather than 4b. 4b answered its own question and moved the blocker rather than clearing
   it.
-- Online: spectrum tracking during training, in latent `phi` (post-front-end). This is the
+- Online: spectrum tracking during training, in latent `phi` (post-preconditioner). This is the
   fingerprints paper's own open question about nonlinear classical preprocessing, and our
-  front end is exactly that case.
+  preconditioner is exactly that case.
 
 ### 6. Ablation matrix & scaling
-- {MLP-only, QFM-only, MLP+QFM} x {raw, fixed whitening, learned front end} x ansatz arm.
+- {MLP-only, QFM-only, MLP+QFM} x {raw, fixed whitening, learned preconditioner} x ansatz arm.
 - Scaling in event size and dataset size, against the classical baselines, citing PASCL and
   Kahn et al. as external reference points.
 - Read the known/unknown probe against its ceiling: distinct tree shapes are scarce at
@@ -261,9 +261,9 @@ the input-distribution dependence.
   against 0.400 unknown, i.e. the majority-class rate on unseen shapes. Honest to quote now
   the split is uncontaminated, and separate from the quantum arm's underfitting.
 - Why is the total-variation direction seed-dependent (§8)? Three seeds cannot say whether
-  the front end has several equally good solutions or whether one site type is simply easier
+  the preconditioner has several equally good solutions or whether one site type is simply easier
   to move. Wants `n >= 5`.
 - Formal link between spectral redundancy (`Omega-hat` degeneracies) and DLA structure? Both
   toolchains sit in qml-essentials. Speculative — do not promise it in the paper.
-- Spectrum definition under a trainable front end: report against latent `phi` (clean) or
+- Spectrum definition under a trainable preconditioner: report against latent `phi` (clean) or
   1D/2D slices in `x` (end-to-end)? Decide before phase 5 writes anything down.

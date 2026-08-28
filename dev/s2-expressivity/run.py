@@ -15,10 +15,10 @@ configuration so its axis is the only thing that moves:
   bottleneck" and it changes nothing else. Run last: deep circuits are unrolled,
   so their *compile* cost dominates even though the step cost is flat in depth.
 * **B, encoding weights.** ``enc_weights`` x ``enc_reupload``, crossed with the raw
-  and learned front ends, plus the clustered ``legacy`` encoding where the
+  and learned preconditioners, plus the clustered ``legacy`` encoding where the
   manuscript's jitter amplification has room to act.
 * **C, ansatz.** The partition-respecting arms against the phase-4 one, crossed
-  with the front end.
+  with the preconditioner.
 
 Every cell runs at ``--seeds`` seeds, because the differences in ``RESEARCH.md``
 are small enough that a single seed says nothing.
@@ -68,7 +68,7 @@ def cells(arm: str) -> list[dict[str, Any]]:
         return [{**BASE, "n_layers": n} for n in (2, 4, 8, 16)]
     if arm == "b":
         grid = [
-            {**BASE, "enc_weights": w, "enc_reupload": r, "frontend": f}
+            {**BASE, "enc_weights": w, "enc_reupload": r, "preconditioner": f}
             for (w, r), f in itertools.product(WEIGHT_CELLS, ("none", "mlp"))
         ]
         # The clustered arm: p*E*pi angles collapse toward zero, which is where an
@@ -85,7 +85,7 @@ def cells(arm: str) -> list[dict[str, Any]]:
         ]
     if arm == "c":
         return [
-            {**BASE, "ansatz": a, "frontend": f}
+            {**BASE, "ansatz": a, "preconditioner": f}
             for a, f in itertools.product(ANSATZ_ARMS, ("none", "mlp"))
         ]
     if arm == "baseline":
@@ -325,7 +325,7 @@ def report(paths: list[Path]) -> None:
             def _p(record: dict[str, Any], name: str) -> float | None:
                 return record.get(f"{name}_repaired", record.get(name))
 
-            # `_p` prefers a repaired value where one exists -- the front-end-free
+            # `_p` prefers a repaired value where one exists -- the preconditioner-free
             # cells, whose observable was recomputed exactly offline -- and otherwise
             # takes the recorded one, which every remaining record produced after the
             # D105 fix, so there is no longer an untrustworthy end value to flag.

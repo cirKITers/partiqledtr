@@ -134,7 +134,7 @@ class LCAGGNN(nnx.Module):
         n_classes: Number of LCAG classes ``C``.
         dim: Width of the node and edge representations.
         n_blocks: Number of node <-> edge blocks.
-        frontend: Optional elementwise front end ``(..., F) -> (..., F)`` applied to the
+        preconditioner: Optional elementwise preconditioner ``(..., F) -> (..., F)`` applied to the
             features first; ``None`` feeds the raw features.
         rngs: Rng container used for parameter initialisation.
 
@@ -149,7 +149,7 @@ class LCAGGNN(nnx.Module):
         *,
         dim: int = 64,
         n_blocks: int = 3,
-        frontend: nnx.Module | None = None,
+        preconditioner: nnx.Module | None = None,
         rngs: nnx.Rngs,
     ) -> None:
         if dim < 1:
@@ -158,7 +158,7 @@ class LCAGGNN(nnx.Module):
             raise ValueError(f"n_blocks must be >= 1, got {n_blocks}")
         if n_classes < 2:
             raise ValueError(f"n_classes must be >= 2, got {n_classes}")
-        self.frontend = frontend
+        self.preconditioner = preconditioner
         self.initial_mlp = MLPBlock(n_features, dim, dim, rngs=rngs)
         self.pre_blocks_mlp = MLPBlock(2 * dim, dim, dim, rngs=rngs)
         self.blocks = nnx.List([_Block(dim, rngs=rngs) for _ in range(n_blocks)])
@@ -175,8 +175,8 @@ class LCAGGNN(nnx.Module):
         Returns:
             Logits of shape ``(B, L, L, C)``, symmetric in the two ``L`` axes.
         """
-        if self.frontend is not None:
-            x = self.frontend(x)
+        if self.preconditioner is not None:
+            x = self.preconditioner(x)
         edge_mask = _edge_mask(mask)
         edges = self.pre_blocks_mlp(node2edge(self.initial_mlp(x)))
         global_skip = edges

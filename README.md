@@ -25,7 +25,7 @@ Problem back then was that the simulation of a quantum model took an awful long 
 However we showed that the qnn seems to be beneficial for the training.
 While there is a low chance that we can acutally show an advantage compared to the purely classical case, it would already be interesting to research if the trigonometric properties of a QFM fit in the context of this given problem.
 This formulates the main hypothesis:
-> A constellation of small, shared-weight QFMs embedded in a message-passing architecture, with a constrained elementwise MLP front end, can predict the LCAG of particle decay events.
+> A constellation of small, shared-weight QFMs embedded in a message-passing architecture, with a constrained elementwise MLP preconditioner, can predict the LCAG of particle decay events.
 > On floor-free polynomial-DLA ansaetze the encoder-channel rescue and g-purity dynamics predicted by the unflattening work are observable on naturally clustered kinematic inputs, while floored ansaetze show the predicted indifference.
 > The ansatz FCC (fourier-fingerprints) acts as an inductive-bias descriptor for the task.
 
@@ -40,7 +40,7 @@ Measured so far (`docs/RESEARCH.md` §1, §7-8), the first two clauses need amen
 - the recovered purity **does not buy reconstruction accuracy**, so the
   contribution is mechanistic rather than a performance claim.
 
-The floored-ansatz clause holds, and sharply: the front end moves the distribution
+The floored-ansatz clause holds, and sharply: the preconditioner moves the distribution
 just as far there, the floor absorbs all of it, and the task gets worse. The FCC
 clause is untested -- that is phase 5.
 
@@ -53,13 +53,16 @@ The same holds true for any limitations/issues with qml-essentials.
 
 ## Architecture
 
-![the model and its variants](docs/architecture.svg)
+![the quantum model, end to end](docs/architecture.svg)
+
+The classical `gnn` and `mlp` arms take the same features straight into their own
+preconditioner and head; only the quantum arm is drawn.
 
 ```
 partiqledtr/    the model and its data generation -- nothing study-specific
 ├── data/       topology sampler · decay -> LCAG · features · phasespace generation
 │               · dataset assembly + stats · whitening (phase 4)
-├── models/     elementwise residual front end · NRI message-passing GNN
+├── models/     elementwise residual preconditioner · NRI message-passing GNN
 │               · linear control · QFM constellation (phase 3)
 ├── ansaetze.py the ansatz arms and their bond structure (phase 4b arm C)
 ├── metrics.py  per-element / Perfect-LCAG / valid-tree rate, class weights
@@ -89,7 +92,7 @@ it is tracked -- but the research record in `docs/` now is.
 The model is a constellation of 4-qubit QFMs used as the *edge function* of a
 message-passing network, sharing one parameter set across every edge (which is
 what makes it permutation-equivariant). Every classical part is particle-local --
-elementwise front end, parameter-free masked mean, per-node linear map -- so
+elementwise preconditioner, parameter-free masked mean, per-node linear map -- so
 cross-particle structure can only come from the quantum part. Readout is per-qubit
 Pauli-Z plus a shared linear head, so nothing scales exponentially.
 
@@ -158,7 +161,7 @@ The arms, all selected through flow inputs:
 | `model` | `gnn`, `mlp`, `qfm` | `qfm` requires `encoding="cartesian"` |
 | `ansatz` | `XY_Brickwork`, `XY_Ring`, `XY_AllPairs`, `Circuit_19` | quantum arm only; phase 4b arm C |
 | `lr` | float | `1e-2` is where the rescue appears (§7); the default `1e-3` is below it |
-| `frontend` | `none`, `mlp` | `mlp` is the learned elementwise front end |
+| `preconditioner` | `none`, `mlp` | `mlp` is the learned elementwise preconditioner |
 | `whiten` | `false`, `true` | fixed isotropic preconditioning |
 | `encoding` | `angles`, `cartesian`, `legacy` | `cartesian` keeps `\|p\|`, needed by `qfm` |
 | `angle_map` | `pair_polar`, `legacy` | pair with `encoding=legacy` for the clustered arm |
@@ -176,8 +179,8 @@ with a partition-respecting ansatz instead of undoing it (`docs/DECISIONS.md` D1
 role and respects the two-particle partition as well -- but it stays runnable, so
 the phase-4 cells of `docs/RESEARCH.md` §7 remain reproducible.
 
-The ROADMAP's three phase-4 input arms are `frontend=none, whiten=false` (raw),
-`frontend=none, whiten=true` (fixed whitening) and `frontend=mlp, whiten=false`
+The ROADMAP's three phase-4 input arms are `preconditioner=none, whiten=false` (raw),
+`preconditioner=none, whiten=true` (fixed whitening) and `preconditioner=mlp, whiten=false`
 (learned). The whitening rotation is fitted on the training split for every run
 regardless, so its acceptance report is always recorded.
 
@@ -210,7 +213,7 @@ runs = [
         model="qfm",
         encoding="cartesian",
         ansatz=ansatz,
-        frontend=fe,
+        preconditioner=fe,
         whiten=wh,
         epochs=100,
     )
@@ -220,7 +223,7 @@ for r in runs:
     r.wait()
 ```
 
-`fluksio sweep train --param ansatz=A,B --param frontend=none,mlp` is the CLI
+`fluksio sweep train --param ansatz=A,B --param preconditioner=none,mlp` is the CLI
 equivalent and takes the grid directly; the dataset inputs come along as digests
 (`--dataset_train sha256:...`) with `dataset_meta` inline.
 
@@ -233,8 +236,8 @@ from functools import partial
 from partiqledtr.models import matched_dim, n_params
 from partiqledtr.train import build_model
 
-quantum = build_model(model="qfm", frontend="none", n_features=4, n_classes=4)
-build = partial(build_model, model="gnn", frontend="none", n_features=4, n_classes=4)
+quantum = build_model(model="qfm", preconditioner="none", n_features=4, n_classes=4)
+build = partial(build_model, model="gnn", preconditioner="none", n_features=4, n_classes=4)
 dim = matched_dim(n_params(quantum), build, n_blocks=3)  # 70 params -> dim=1
 ```
 
@@ -265,7 +268,7 @@ inductive-bias question this project probes.
 
 Two prior results shape the design. First, the unflattening work shows that for
 floor-free, polynomial-DLA ansaetze the input angle distribution decides trainability:
-clustered angles annihilate the loss signal, while a classical front end rescues it
+clustered angles annihilate the loss signal, while a classical preconditioner rescues it
 through the encoder channel. The expectation was that kinematic features cluster encoding
 angles naturally (soft particles yield near-zero angles), putting this task in exactly the
 regime where the theory makes falsifiable predictions — observable as g-purity dynamics
@@ -274,13 +277,13 @@ old `p·E·π` encoding and not for the replacements** (`docs/RESEARCH.md` §1),
 the input-distribution arm can claim. Second, the fourier-fingerprints work
 provides the FCC as a cheap, hardware-compatible descriptor of an ansatz's coefficient
 correlations; here it serves as an ansatz-selection metric, and tracking the spectrum
-under a trainable front end addresses that paper's open question about nonlinear
+under a trainable preconditioner addresses that paper's open question about nonlinear
 classical preprocessing.
 
 The architecture consequence: many small shared-weight QFMs inside message passing
 (permutation-equivariant by construction, tractable spectra, cheap analytic simulation)
 instead of the former one-qubit-per-particle monolith; an elementwise residual MLP as
-front end so cross-particle structure must come from the quantum part. This is an
+preconditioner so cross-particle structure must come from the quantum part. This is an
 inductive-bias study, not an advantage claim — the relevant spectra admit classical
 surrogates, and the honest question is whether the trigonometric structure helps.
 

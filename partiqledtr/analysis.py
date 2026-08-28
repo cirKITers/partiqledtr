@@ -266,7 +266,7 @@ def angle_stats(angles: np.ndarray) -> dict[str, list[float]]:
     * It has a **nonzero floor set by kinematics, not by training**. The
       ``(p_z, E)`` sites cannot leave ``(0, pi)`` and in practice sit inside about
       ``[pi/4, 3pi/4]`` (D79), so those qubits can never be uniform however the
-      front end moves them. Compare a run against the *raw* arm's value at the same
+      preconditioner moves them. Compare a run against the *raw* arm's value at the same
       site, not against zero.
     * It depends on :data:`TV_BINS` and on how many angles went in.
 

@@ -12,7 +12,7 @@ from partiqledtr.analysis import offdiag_uniform_mean, product_state_purity
 from partiqledtr.data.features import apply_normalization, normalization_scales
 from partiqledtr.data.whitening import fit_whitening, purity_of_rotation, sample_rotation
 from partiqledtr.models import MODELS, n_params
-from partiqledtr.models.frontend import ElementwiseResidualMLP
+from partiqledtr.models.preconditioner import ElementwiseResidualMLP
 from partiqledtr.models.qfm import (
     ANSAETZE,
     ENC_REUPLOAD,
@@ -245,10 +245,10 @@ def test_gradients_flow_through_the_quantum_edge_function_repeatedly():
 
 def test_a_front_end_starts_as_the_identity():
     x, mask = _batch(np.random.default_rng(SEED))
-    frontend = ElementwiseResidualMLP(2, rngs=nnx.Rngs(SEED))
+    preconditioner = ElementwiseResidualMLP(2, rngs=nnx.Rngs(SEED))
 
     plain = _model()(x, mask)
-    fronted = _model(frontend=frontend)(x, mask)
+    fronted = _model(preconditioner=preconditioner)(x, mask)
     assert jnp.allclose(plain, fronted)
 
 

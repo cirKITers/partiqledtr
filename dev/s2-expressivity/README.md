@@ -21,7 +21,7 @@ encoding scores at or below the Hamming baseline.
 
 The result that reframes what is left: **the readout is outside the algebra.** The
 unflattening variance law needs the observable inside the DLA, and single-qubit Z is
-not in the DLA of any XY arm — so the front end's effect on the encoded state has no
+not in the DLA of any XY arm — so the preconditioner's effect on the encoded state has no
 channel to the loss. That is ROADMAP phase 4c item 1, and it comes before phase 5.
 
 One arm did land: `XY_Ring` is floor-free *and* partition-respecting, and at equal

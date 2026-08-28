@@ -8,7 +8,7 @@ Three claims, one figure each:
    arm moves purity over 5.7x at fixed performance (a horizontal spread). A scalar
    summary of the angle distribution is deliberately *not* an axis here: g-purity is
    the theory's own scalar, and it is the one the closed forms are written in.
-2. ``frontend_channel`` -- what the trained front end can do to the encoded
+2. ``preconditioner_channel`` -- what the trained preconditioner can do to the encoded
    distribution depends on the encoding weights, which is spectral preconditioning
    seen from the model side rather than from the data.
 3. ``angle_plane`` -- the angle distribution itself, in the two coordinates that
@@ -110,7 +110,10 @@ def configurations() -> list[dict[str, Any]]:
             if "error" in record or config.get("model") != "qfm":
                 continue
             axes = ("encoding", "angle_map", "ansatz", "n_layers", "enc_weights", "enc_reupload")
-            key = (config.get("frontend"), *(config.get(a) for a in axes))
+            # `frontend` is what the 280 phase-4b runs recorded; the axis was renamed
+            # to `preconditioner` afterwards, and their result files were not rewritten.
+            arm = config.get("preconditioner", config.get("frontend"))
+            key = (arm, *(config.get(a) for a in axes))
             rows.setdefault(key, []).append(record)
 
     def get(record: dict[str, Any], name: str) -> Any:
@@ -124,7 +127,7 @@ def configurations() -> list[dict[str, Any]]:
 
     out = []
     for key, group in rows.items():
-        frontend, encoding, _map, ansatz, n_layers, weights, reupload = key
+        preconditioner, encoding, _map, ansatz, n_layers, weights, reupload = key
         # One seed per (configuration, seed): the same cell in two arm files is the
         # same run of the same thing, so it must not count twice.
         group = list({r["cell"]["seed"]: r for r in group}.values())
@@ -133,7 +136,7 @@ def configurations() -> list[dict[str, Any]]:
         known = [r["test_metrics"]["known"] for r in group]
         out.append(
             {
-                "frontend": frontend,
+                "preconditioner": preconditioner,
                 "ansatz": ansatz,
                 "n_layers": n_layers,
                 "weights": weights,
@@ -228,7 +231,7 @@ def _place(points, axis):
 
 def purity_vs_task(rows: list[dict[str, Any]], path: Path) -> None:
     """Claim 1: the theory's variable and the task's score do not move together."""
-    rows = [r for r in rows if r["frontend"] == "none"]
+    rows = [r for r in rows if r["preconditioner"] == "none"]
     figure, axes = plt.subplots(1, 2, figsize=(9.4, 4.0), sharex=True)
     for axis, metric, name in zip(
         axes, ("accuracy", "perfect"), ("per-element accuracy", "Perfect-LCAG"), strict=True
@@ -342,18 +345,18 @@ def purity_vs_task(rows: list[dict[str, Any]], path: Path) -> None:
     plt.close(figure)
 
 
-def frontend_channel(rows: list[dict[str, Any]], path: Path) -> None:
-    """Claim 2: what the front end can do to the purity depends on the encoding.
+def preconditioner_channel(rows: list[dict[str, Any]], path: Path) -> None:
+    """Claim 2: what the preconditioner can do to the purity depends on the encoding.
 
     Spectral preconditioning and the DLA floor, seen from the model side. Drawn as
     a strip of the per-seed outcomes rather than an arrow to their mean, because
-    the mean is not the finding: on a floor-free Hamming arm the trained front end
+    the mean is not the finding: on a floor-free Hamming arm the trained preconditioner
     lands anywhere between an annihilated state and one above where it started, and
     an arrow would report the midpoint of that as though it were a displacement.
     """
     cells = _fig2_cells(rows)
     families = {
-        "floor_free_hamming": ("#2a78d6", "floor-free, Hamming - front end unconstrained"),
+        "floor_free_hamming": ("#2a78d6", "floor-free, Hamming - preconditioner unconstrained"),
         "floor_free_dissociated": ("#eb6834", "floor-free, dissociated - encoding pins it"),
         "floored": ("#1baf7a", r"floored ($d_Z>0$) - the algebra pins it"),
     }
@@ -402,7 +405,7 @@ def frontend_channel(rows: list[dict[str, Any]], path: Path) -> None:
     axis.spines["right"].set_visible(False)
     axis.legend(loc="center right", fontsize=7.5, labelcolor=MUTED)
     axis.set_title(
-        "How far a trained front end can move the encoded state, and how reliably",
+        "How far a trained preconditioner can move the encoded state, and how reliably",
         loc="left",
         color=INK,
         fontsize=10.5,
@@ -473,7 +476,7 @@ def angle_plane(rows: list[dict[str, Any]], path: Path) -> None:
         )
 
     seen = set()
-    for row in (r for r in rows if r["frontend"] == "none"):
+    for row in (r for r in rows if r["preconditioner"] == "none"):
         colour, legend = families[family_of(row)]
         stats = row["angles_start"]
         for site, (tv, sin2) in enumerate(
@@ -544,7 +547,7 @@ def _spread(values: list[float]) -> tuple[float, float, float]:
 
 
 def _family_of(row: dict[str, Any]) -> str:
-    """Why the front end can or cannot move this configuration's purity."""
+    """Why the preconditioner can or cannot move this configuration's purity."""
     if row["d_z"] > 0:
         return "floored"
     return "floor_free_hamming" if row["weights"] == "hamming" else "floor_free_dissociated"
@@ -552,7 +555,7 @@ def _family_of(row: dict[str, Any]) -> str:
 
 def _fig2_cells(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """The configurations figure 2 draws, in the order it draws them."""
-    cells = [r for r in rows if r["frontend"] == "mlp" and not r["clustered"]]
+    cells = [r for r in rows if r["preconditioner"] == "mlp" and not r["clustered"]]
     order = {"floored": 0, "floor_free_dissociated": 1, "floor_free_hamming": 2}
     cells.sort(key=lambda r: (order[_family_of(r)], abs(r["purity_end"] - r["purity_start"])))
     return cells
@@ -570,8 +573,8 @@ _SPREAD_METRICS = (
 )
 
 
-def frontend_channel_csv(rows: list[dict[str, Any]], path: Path) -> None:
-    """Write the data behind :func:`frontend_channel`, one row per configuration.
+def preconditioner_channel_csv(rows: list[dict[str, Any]], path: Path) -> None:
+    """Write the data behind :func:`preconditioner_channel`, one row per configuration.
 
     Every metric appears as ``<name>``, ``<name>_sd`` and ``<name>_sem`` over the
     seed group, so an error bar is a column rather than a recomputation -- ``sd``
@@ -579,7 +582,7 @@ def frontend_channel_csv(rows: list[dict[str, Any]], path: Path) -> None:
     ``n_seeds`` so either can be turned into the other or into a t-interval.
 
     ``purity_start`` has no spread by construction: it is a property of data plus
-    encoding, and a zero-init front end is the identity at epoch 0, so every seed
+    encoding, and a zero-init preconditioner is the identity at epoch 0, so every seed
     of a configuration starts at the same value. ``shift`` is therefore
     ``purity_end - purity_start`` per seed, and its spread is the end's.
 
@@ -593,7 +596,7 @@ def frontend_channel_csv(rows: list[dict[str, Any]], path: Path) -> None:
         "enc_weights",
         "enc_reupload",
         "n_layers",
-        "frontend",
+        "preconditioner",
         "dim_g",
         "d_z",
         "mu_n",
@@ -620,7 +623,7 @@ def frontend_channel_csv(rows: list[dict[str, Any]], path: Path) -> None:
                 "enc_weights": row["weights"],
                 "enc_reupload": row["reupload"],
                 "n_layers": row["n_layers"],
-                "frontend": row["frontend"],
+                "preconditioner": row["preconditioner"],
                 "dim_g": row["dim_g"],
                 "d_z": row["d_z"],
                 "mu_n": round(row["mu_n"], 6),
@@ -641,7 +644,7 @@ def frontend_channel_csv(rows: list[dict[str, Any]], path: Path) -> None:
             writer.writerow(record)
 
 
-def frontend_channel_seeds_csv(rows: list[dict[str, Any]], path: Path) -> None:
+def preconditioner_channel_seeds_csv(rows: list[dict[str, Any]], path: Path) -> None:
     """Write one row per (configuration, seed) behind figure 2.
 
     The summary file is derived from this one; anything it does not carry -- a
@@ -696,13 +699,13 @@ def main() -> None:
     _style()
     FIGURES.mkdir(parents=True, exist_ok=True)
     rows = configurations()
-    bare = sum(r["frontend"] == "none" for r in rows)
-    print(f"{len(rows)} configurations ({bare} without a front end)")
+    bare = sum(r["preconditioner"] == "none" for r in rows)
+    print(f"{len(rows)} configurations ({bare} without a preconditioner)")
     purity_vs_task(rows, FIGURES / "fig1_purity_vs_task.png")
-    frontend_channel(rows, FIGURES / "fig2_frontend_channel.png")
+    preconditioner_channel(rows, FIGURES / "fig2_preconditioner_channel.png")
     angle_plane(rows, FIGURES / "fig3_angle_plane.png")
-    frontend_channel_csv(rows, FIGURES / "fig2_frontend_channel.csv")
-    frontend_channel_seeds_csv(rows, FIGURES / "fig2_frontend_channel_seeds.csv")
+    preconditioner_channel_csv(rows, FIGURES / "fig2_preconditioner_channel.csv")
+    preconditioner_channel_seeds_csv(rows, FIGURES / "fig2_preconditioner_channel_seeds.csv")
     print("wrote fig1, fig2, fig3 and both fig2 csv files")
 
 

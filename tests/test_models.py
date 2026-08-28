@@ -4,10 +4,10 @@ import numpy as np
 import pytest
 from flax import nnx
 
-from partiqledtr.models import FRONTENDS, MODELS, n_params
-from partiqledtr.models.frontend import ElementwiseResidualMLP
+from partiqledtr.models import MODELS, PRECONDITIONERS, n_params
 from partiqledtr.models.gnn import LCAGGNN
 from partiqledtr.models.mlp import MLPBaseline
+from partiqledtr.models.preconditioner import ElementwiseResidualMLP
 
 B, L, F, C, DIM, SEED = 2, 5, 3, 4, 8, 0
 N_VALID = (5, 3)  # batch row 0 is unpadded, row 1 has two padded particles
@@ -24,8 +24,8 @@ def _batch(seed: int = 1, n_valid: tuple[int, ...] = N_VALID):
     return jnp.asarray(x), jnp.asarray(mask)
 
 
-def _build(cls, *, dim: int = DIM, frontend=None, seed: int = SEED):
-    return cls(F, C, dim=dim, frontend=frontend, rngs=nnx.Rngs(seed))
+def _build(cls, *, dim: int = DIM, preconditioner=None, seed: int = SEED):
+    return cls(F, C, dim=dim, preconditioner=preconditioner, rngs=nnx.Rngs(seed))
 
 
 @pytest.mark.parametrize("cls", [LCAGGNN, MLPBaseline])
@@ -71,30 +71,31 @@ def test_gnn_degree_normalisation_uses_true_degree():
     assert jnp.allclose(padded, unpadded, atol=TOL)
 
 
-def test_frontend_is_identity_at_init():
+def test_preconditioner_is_identity_at_init():
     x, _ = _batch()
-    frontend = ElementwiseResidualMLP(F, 4, rngs=nnx.Rngs(SEED))
-    assert jnp.array_equal(frontend(x), x)  # zero-initialised w2, so exactly identity
+    preconditioner = ElementwiseResidualMLP(F, 4, rngs=nnx.Rngs(SEED))
+    assert jnp.array_equal(preconditioner(x), x)  # zero-initialised w2, so exactly identity
 
 
-def test_frontend_cannot_mix_features():
-    frontend = ElementwiseResidualMLP(F, 4, rngs=nnx.Rngs(SEED))
-    dtype = frontend.w2[...].dtype
-    frontend.w2[...] = jax.random.normal(jax.random.key(3), frontend.w2.shape, dtype=dtype)
+def test_preconditioner_cannot_mix_features():
+    preconditioner = ElementwiseResidualMLP(F, 4, rngs=nnx.Rngs(SEED))
+    dtype = preconditioner.w2[...].dtype
+    shape = preconditioner.w2.shape
+    preconditioner.w2[...] = jax.random.normal(jax.random.key(3), shape, dtype=dtype)
     x = jax.random.normal(jax.random.key(4), (F,), dtype=dtype)
-    jac = jax.jacobian(frontend)(x)
+    jac = jax.jacobian(preconditioner)(x)
     assert jac.shape == (F, F)
     # Exactly zero off-diagonal: the einsums never contract over the feature axis.
     assert jnp.count_nonzero(jac - jnp.diag(jnp.diagonal(jac))) == 0
-    # ... and the check is not vacuous: the perturbed front end is no longer identity.
+    # ... and the check is not vacuous: the perturbed preconditioner is no longer identity.
     assert not jnp.allclose(jnp.diagonal(jac), 1.0)
 
 
 @pytest.mark.parametrize("cls", [LCAGGNN, MLPBaseline])
-def test_identity_frontend_leaves_model_output_unchanged(cls):
+def test_identity_preconditioner_leaves_model_output_unchanged(cls):
     x, mask = _batch()
-    frontend = ElementwiseResidualMLP(F, 4, rngs=nnx.Rngs(9))
-    plain, wrapped = _build(cls), _build(cls, frontend=frontend)
+    preconditioner = ElementwiseResidualMLP(F, 4, rngs=nnx.Rngs(9))
+    plain, wrapped = _build(cls), _build(cls, preconditioner=preconditioner)
     assert jnp.array_equal(plain(x, mask), wrapped(x, mask))
     assert n_params(wrapped) == n_params(plain) + 3 * F * 4
 
@@ -172,4 +173,4 @@ def test_registries_expose_the_selectable_components():
     assert MODELS["gnn"] is LCAGGNN
     assert MODELS["mlp"] is MLPBaseline
     assert set(MODELS) == {"gnn", "mlp", "qfm"}  # "qfm" is the phase-3 arm
-    assert FRONTENDS == {"none": None, "mlp": ElementwiseResidualMLP}
+    assert PRECONDITIONERS == {"none": None, "mlp": ElementwiseResidualMLP}

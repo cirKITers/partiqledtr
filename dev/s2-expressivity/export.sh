@@ -25,7 +25,7 @@ export FLUKSIO_URL=${FLUKSIO_URL:-http://127.0.0.1:8765}
 export FLUKSIO_TOKEN=${FLUKSIO_TOKEN:-$(python3 -c "import json;print(json.load(open('.fluksio/client.json'))['token'])")}
 mkdir -p figures
 
-PARAMS=model,ansatz,enc_weights,enc_reupload,n_layers,frontend,encoding,angle_map,seed,epochs
+PARAMS=model,ansatz,enc_weights,enc_reupload,n_layers,preconditioner,encoding,angle_map,seed,epochs
 METRICS=final_metrics.train_loss,final_metrics.n_params,final_metrics.g_purity_initial
 METRICS=$METRICS,final_metrics.val_g_purity,final_metrics.config.ansatz
 METRICS=$METRICS,test_metrics.known.accuracy,test_metrics.known.perfect

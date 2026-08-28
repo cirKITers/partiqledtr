@@ -6,7 +6,7 @@ set across every edge. Sharing is what makes the model permutation-equivariant;
 staying small is what keeps the analytic simulation cheap and the per-QFM spectrum
 tractable.
 
-Every classical part is deliberately particle-local -- an elementwise front end, a
+Every classical part is deliberately particle-local -- an elementwise preconditioner, a
 parameter-free masked mean, a per-node linear map -- so cross-particle structure
 can only come from the quantum edge function (``DECISIONS.md`` D27).
 
@@ -315,7 +315,7 @@ class QFMConstellation(nnx.Module):
 
         p4    (B, L, 4)      four-vectors
         ang   (B, L, 2)      pair-polar angles, optionally whitened
-        a     (B, L, 2)      front end (identity or elementwise residual MLP)
+        a     (B, L, 2)      preconditioner (identity or elementwise residual MLP)
         u1    (B, L, L, 4)   concat(a_i, a_j) -> folded to (B*L*L, 4) for the QFM
         e1    (B, L, L, 4)   per-qubit Pauli-Z expectation values
         m     (B, L, 4)      masked mean over real neighbours
@@ -344,7 +344,7 @@ class QFMConstellation(nnx.Module):
         enc_weights: Encoding weight strategy, one of :data:`ENC_WEIGHTS`.
         enc_reupload: Re-upload mask, one of :data:`ENC_REUPLOAD`. Crossed with
             ``enc_weights`` these are ROADMAP phase 4b arm B.
-        frontend: Optional elementwise front end ``(..., 2) -> (..., 2)`` applied to
+        preconditioner: Optional elementwise preconditioner ``(..., 2) -> (..., 2)`` applied to
             the angles; ``None`` feeds them raw.
         whitening: Optional ``(4, 4)`` rotation applied to the four-vectors before
             the polar map -- the phase-4 fixed-whitening arm. Accepts anything
@@ -358,9 +358,9 @@ class QFMConstellation(nnx.Module):
             ``whitening`` is not ``(4, 4)``.
     """
 
-    #: A front end attached here sees the pair-polar angles, not the raw
+    #: A preconditioner attached here sees the pair-polar angles, not the raw
     #: four-vectors, so it is built for this many features rather than ``F``.
-    frontend_features = N_ANGLES
+    preconditioner_features = N_ANGLES
 
     def __init__(
         self,
@@ -372,7 +372,7 @@ class QFMConstellation(nnx.Module):
         angle_map: str = "pair_polar",
         enc_weights: str = "hamming",
         enc_reupload: str = "diagonal",
-        frontend: nnx.Module | None = None,
+        preconditioner: nnx.Module | None = None,
         whitening: Any = None,
         seed: int = 0,
         rngs: nnx.Rngs,
@@ -402,7 +402,7 @@ class QFMConstellation(nnx.Module):
         self.angle_map = angle_map
         self.enc_weights = enc_weights
         self.enc_reupload = enc_reupload
-        self.frontend = frontend
+        self.preconditioner = preconditioner
         self.whitening = rotation
         # Not an nnx.Param: the encoding weights are fixed by the arm, and making
         # them trainable is a separate ROADMAP axis with its own failure mode.
@@ -442,12 +442,12 @@ class QFMConstellation(nnx.Module):
             x: ``(B, L, 4)`` four-vectors.
 
         Returns:
-            ``(B, L, 2)`` angles after optional whitening and the front end.
+            ``(B, L, 2)`` angles after optional whitening and the preconditioner.
         """
         if self.whitening is not None:
             x = x @ self.whitening.T
         angles = ANGLE_MAPS[self.angle_map](x)
-        return angles if self.frontend is None else self.frontend(angles)
+        return angles if self.preconditioner is None else self.preconditioner(angles)
 
     def edge_angles(self, x: jax.Array, mask: jax.Array) -> jax.Array:
         """The angle vectors the first QFM block encodes, over real edges only.
@@ -495,7 +495,7 @@ class QFMConstellation(nnx.Module):
 
         Read it against :func:`partiqledtr.analysis.uniform_prior_mean` for the same
         arm: on a floor-free arm (``XY_Brickwork``, ``XY_Ring``) the theory predicts
-        a collapse on clustered inputs and a rise over training when a front end
+        a collapse on clustered inputs and a rise over training when a preconditioner
         rescues it, on a floored one (``XY_AllPairs``) indifference, and on
         ``Circuit_19`` a constant (``DECISIONS.md`` D51).
 

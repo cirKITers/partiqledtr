@@ -1,0 +1,43 @@
+# The quantum model, end to end. Orange is a switch: a `train` flow input picks
+# one of its values. Edge labels are array shapes -- B events, L padded particles,
+# C LCAG classes. The classical `gnn` and `mlp` arms are deliberately not drawn.
+#
+#   d2 docs/architecture.d2 docs/architecture.svg
+
+vars: { d2-config: { layout-engine: elk; pad: 20 } }
+
+classes: {
+  switch: { style: { stroke: "#eb6834"; stroke-width: 2; fill: "#fdf1ea"; font-size: 14 } }
+  quantum: { style: { stroke: "#2a78d6"; stroke-width: 2; fill: "#eaf2fc"; font-size: 14 } }
+  local: { style: { stroke: "#8fb8e8"; fill: "#f7fbff"; font-size: 14 } }
+  plain: { style: { stroke: "#8d8b86"; fill: "#fcfcfb"; font-size: 14 } }
+}
+
+model: "" {
+  grid-columns: 5
+  grid-gap: 70
+  style: { stroke: transparent; fill: transparent }
+
+  p4: "four-vectors\n`encoding` cartesian · legacy" { class: plain }
+  wh: "whiten\nfixed 4x4 rotation" { class: switch }
+  am: "`angle_map`\npair_polar · legacy" { class: switch }
+  pre: "`preconditioner`\nnone · mlp, elementwise" { class: switch }
+  e1: "QFM 1\n4 qubits, shared over every edge\nper-qubit Pauli-Z" { class: quantum }
+
+  agg: "masked mean\nparameter-free" { class: local }
+  wn: "`w_node`\nlinear on [a ; m]" { class: local }
+  e2: "QFM 2\nown parameters\nper-qubit Pauli-Z" { class: quantum }
+  head: "head\n+ symmetrise" { class: plain }
+  out: "LCAG logits" { class: plain }
+}
+
+model.p4 -> model.wh: (B, L, 4)
+model.wh -> model.am: (B, L, 4)
+model.am -> model.pre: (B, L, 2)
+model.pre -> model.e1: "a  (B, L, 2)"
+model.e1 -> model.agg: (B, L, L, 4)
+model.agg -> model.wn: "m  (B, L, 4)"
+model.wn -> model.e2: (B, L, 2)
+model.e2 -> model.head: (B, L, L, 4)
+model.head -> model.out: (B, L, L, C)
+model.pre -> model.wn: { style.stroke-dash: 3 }

@@ -10,11 +10,11 @@ quantum one:
 ``B`` is the batch size, ``L`` the padded number of final-state particles, ``F`` the
 number of per-particle features and ``C`` the number of LCAG classes. ``mask`` is True
 on real particles; whatever sits in the padded rows must not reach the logits of the
-valid block. A front end is an ``nnx.Module`` mapping ``(..., F) -> (..., F)``, passed
-to a model as its ``frontend`` argument.
+valid block. A preconditioner is an ``nnx.Module`` mapping ``(..., F) -> (..., F)``, passed
+to a model as its ``preconditioner`` argument.
 
 There is no abstract base class: the convention plus the two registries is the whole
-interface. Phase 3 adds a ``"qfm"`` model, phase 4 a ``"whiten"`` front end.
+interface. Phase 3 adds a ``"qfm"`` model, phase 4 a ``"whiten"`` preconditioner.
 
 :func:`n_params` counts a model and :func:`matched_dim` inverts that count, which is
 how the parameter-matched classical arm of a study is chosen.
@@ -23,15 +23,15 @@ how the parameter-matched classical arm of a study is chosen.
 import jax
 from flax import nnx
 
-from partiqledtr.models.frontend import ElementwiseResidualMLP
 from partiqledtr.models.gnn import LCAGGNN
 from partiqledtr.models.mlp import MLPBaseline
+from partiqledtr.models.preconditioner import ElementwiseResidualMLP
 from partiqledtr.models.qfm import QFMConstellation
 
 #: ``"qfm"`` consumes four-vectors, so it requires the ``"cartesian"`` encoding;
 #: the classical baselines accept either.
 MODELS: dict[str, type] = {"gnn": LCAGGNN, "mlp": MLPBaseline, "qfm": QFMConstellation}
-FRONTENDS: dict[str, type | None] = {"none": None, "mlp": ElementwiseResidualMLP}
+PRECONDITIONERS: dict[str, type | None] = {"none": None, "mlp": ElementwiseResidualMLP}
 
 
 def n_params(module: nnx.Module) -> int:

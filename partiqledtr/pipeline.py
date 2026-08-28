@@ -30,7 +30,7 @@ dynamical Lie algebra and floor count are recorded before any training happens -
 enforced by the flow's shape rather than by anyone remembering. ``whitening_rotation``
 fits the fixed isotropic preconditioning on the training split and records its
 acceptance report for *every* run; the model applies it only when ``whiten`` is set,
-independently of ``frontend`` -- ``frontend=mlp`` with ``whiten=true`` is a reachable
+independently of ``preconditioner`` -- ``preconditioner=mlp`` with ``whiten=true`` is a reachable
 (and deliberately runnable) cell.
 
 An ablation cell is one run of this one flow:
@@ -108,7 +108,7 @@ train = Flow(
         Port("dataset_meta", "json"),
         Port("seed", "int", initial=0),
         Port("model", "str", initial="gnn"),
-        Port("frontend", "str", initial="none"),
+        Port("preconditioner", "str", initial="none"),
         Port("encoding", "str", initial="angles"),
         Port("dim", "int", initial=64),
         Port("n_blocks", "int", initial=3),
