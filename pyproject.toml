@@ -21,7 +21,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.sources]
-fluksio = { git = "https://git.stroblme.de/Fluksio/app", rev = "9387755e597b34a8a23462dd51a587d11e0d1d2d", subdirectory = "backend" }
+fluksio = { git = "https://git.stroblme.de/Fluksio/app", rev = "971bd430c762838dbdbee3307122a2edbe905fd5", subdirectory = "backend" }
 
 [dependency-groups]
 dev = ["ruff>=0.12", "ty", "pytest>=8"]

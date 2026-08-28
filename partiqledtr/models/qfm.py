@@ -211,9 +211,7 @@ def make_qfm(
     model = Model(
         n_qubits=N_QUBITS,
         n_layers=n_layers,
-        # ty: `circuit_type` is annotated `str | Circuit` upstream but the code
-        # instantiates it, so a class is what it wants -- see NOTEPAD.md.
-        circuit_type=pqc,  # ty: ignore[invalid-argument-type]
+        circuit_type=pqc,
         encoding=["RY"] * N_QUBITS,
         data_reupload=reupload_mask(enc_reupload, n_layers),
         observables=list(range(N_QUBITS)),
@@ -423,14 +421,15 @@ class QFMConstellation(nnx.Module):
         """Evaluate one QFM on every directed edge of every event.
 
         Uses the functional :meth:`~qml_essentials.model.Model.apply`, which writes
-        no model state and keeps the full ``(B_I, B_P, B_R, O)`` output rank, so the
-        call is safe inside an outer ``jax.jit`` and its shape does not depend on
-        the batch sizes.
+        no model state and keeps every batch axis unsqueezed, so the call is safe
+        inside an outer ``jax.jit`` and its shape does not depend on the batch
+        sizes. The guard pins that rank: a silent change to it would otherwise
+        reshape into the wrong edge grid rather than fail.
         """
         batch, n_leaves = angles.shape[0], angles.shape[1]
         flat = node2edge(angles).reshape(-1, N_QUBITS)
         out = qfm.apply(params=params, inputs=flat)
-        expected = (flat.shape[0], 1, 1, N_QUBITS)
+        expected = (flat.shape[0], 1, 1, 1, N_QUBITS)
         if out.shape != expected:
             raise ValueError(f"QFM returned {out.shape}, expected {expected}")
         return out.reshape(batch, n_leaves, n_leaves, N_QUBITS)
