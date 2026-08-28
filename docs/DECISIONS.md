@@ -91,9 +91,12 @@ Chronological within sections. `[user]` marks decisions the user confirmed expli
 - **D9 No `configs/` directory and no YAML layer.** Fluksio already records node
   settings (keyword defaults) and flow inputs (`Port`) per run; a parallel config
   system would duplicate that and split the source of truth.
-- **D10 No `data/` directory in the repo.** Fluksio stores artifacts
-  content-addressed under `~/.fluksio/artifacts` and records their digests per
-  run; `reports/` holds only exported figures (contents gitignored).
+- **D10 No dataset or config directory is *tracked*.** Fluksio stores artifacts
+  content-addressed and records their digests per run, so the repo carries no
+  copy. Superseded in its detail by D106: the engine's store is `./.fluksio`
+  rather than `~/.fluksio`, and the exported splits, results and figures sit at
+  the repo root in `data/`, `results/` and `figures/` -- all gitignored. There is
+  no `reports/`.
 - **D11 Dataset statistics are a flow node, not a notebook.** The ROADMAP said
   "notebook/flow". A node is seeded, re-runnable and its figures are attached to
   the run as artifacts; a notebook is none of these.
@@ -1040,7 +1043,7 @@ renders shims for all six nodes), and an overfit smoke test drives the GNN to
   Fluksio gave the study real things -- a run id and certificate per cell, streamed
   per-epoch metrics, cached generation -- but running 84 fits through it cost two
   sweeps to engine contention and client timeouts (D103, `NOTEPAD.md`), and the
-  research is the point. `experiments/phase4b.py` now calls `train_model` and
+  research is the point. `dev/s2-expressivity/run.py` now calls `train_model` and
   `evaluate_split` directly over a `ProcessPoolExecutor`, on splits exported to
   `/mnt/cache/partiqledtr/data`.
 
@@ -1072,7 +1075,7 @@ renders shims for all six nodes), and an overfit smoke test drives the GNN to
   plus `data/`, `results/`, `figures/`, `logs/`. The drivers resolve those from
   their own location rather than the working directory, so they behave the same
   started from anywhere. All five are gitignored: they are reproducible from
-  `generate` plus `experiments/`, and too churny to track.
+  `generate` plus `dev/`, and too churny to track.
 
   The same edit fixed something that had been wrong since the start. `.gitignore`
   carried `*.md` with only `!README.md`, so `RESEARCH.md`, `DECISIONS.md`,

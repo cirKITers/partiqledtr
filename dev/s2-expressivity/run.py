@@ -23,9 +23,9 @@ configuration so its axis is the only thing that moves:
 Every cell runs at ``--seeds`` seeds, because the differences in ``RESEARCH.md``
 are small enough that a single seed says nothing.
 
-    python experiments/phase4b.py --arm c                 # in process
-    python experiments/phase4b.py --arm c --fluksio <run>  # through the engine
-    python experiments/phase4b.py --report
+    python dev/s2-expressivity/run.py --arm c                 # in process
+    python dev/s2-expressivity/run.py --arm c --fluksio <run>  # through the engine
+    python dev/s2-expressivity/run.py --report
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ from typing import Any
 
 #: Repo root, resolved from this module rather than the working directory, so a
 #: driver behaves the same wherever it is started from.
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "data"
 OUT = ROOT / "results"
 
@@ -319,7 +319,7 @@ def report(paths: list[Path]) -> None:
             dla = group[0].get("dla_report") or {}
             mu = uniform_prior_mean((final[0].get("config") or {}).get("ansatz", "XY_Brickwork"), 4)
 
-            # `*_repaired` when `experiments/repair_purity.py` has recomputed the
+            # `*_repaired` where a now-retired repair script recomputed the
             # observable on a representative subset; the raw keys are what the run
             # recorded on the biased one (D105), and are not comparable across cells.
             def _p(record: dict[str, Any], name: str) -> float | None:

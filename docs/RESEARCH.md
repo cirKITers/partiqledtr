@@ -3,13 +3,16 @@
 What the phase 1-4 implementation measured, and what it means for the study.
 Implementation reasoning lives in `DECISIONS.md`; this file is about the physics.
 
-Status: §1 and §2 are measured on the 3200/2400/6400-event dataset (24 topologies,
-8 per known/unknown group, 500 events each) and hold. The phase-4 trajectories of
-§3 are still provisional -- one seed per cell -- and are the subject of the
-learning-rate sweep in §7.
+`FINDINGS.md` holds the current claims, at 10 seeds on the 30k-event dataset; this
+file is the measurement history that got there, including the readings later work
+overturned. §6 records what the phase-1-4 review changed and which earlier
+measurements it invalidated.
 
-Numbers here postdate the phase-1-4 review; §6 records what it changed and which
-earlier measurements it invalidated.
+Two provenance notes carry through everything below. §1-§9 were measured on the
+3200/2400/6400-event dataset (24 topologies, 8 per known/unknown group), not the
+30k one `FINDINGS.md` reports on. And every g-purity in §7-§8 was measured on the
+biased validation subset that `DECISIONS.md` D105 fixed on 2026-08-27 -- the task
+scores there are unaffected, the purities are not comparable across cells.
 
 ---
 
@@ -105,7 +108,7 @@ exactly.
 
 ---
 
-## 3. The phase-4 observable works; the trajectory it reports is not the predicted one
+## 3. The phase-4 observable works
 
 On synthetic clustered inputs (encoding angles driven near `{0, pi}`), measured
 two ways -- the closed form the theory is written in, and the exact g-purity of
@@ -125,31 +128,12 @@ prepared state is not a product state at all. Both are now measured and reported
 (`g_purity` per epoch, `g_purity_exact` once at the end), which is what lets a
 claim say which object it is about.
 
-### And during training the trajectory does *not* go the way the earlier draft said
+### What the trajectory does
 
-Re-measured under the corrected convention (§6), 15 epochs, 384 training events,
-one seed, `mu_4 = 0.8125`. The epoch-0 anchor is the raw arm's level by
-construction, since the front end starts as the identity:
-
-| arm | epoch 0 | trajectory | end |
-| --- | --- | --- | --- |
-| `XY_Brickwork` + learned | 1.247 | dips to 0.178 by epoch 6, then recovers | 0.436 |
-| legacy + learned | 0.148 | 0.23, then collapses | 0.020 |
-
-**Neither is the predicted rescue.** On the XY arm the learned front end drives
-purity *down* by a factor of seven before partially recovering, ending well below
-both its start and `mu_4`. On the clustered legacy arm -- the one that is actually
-in the regime the theory is about -- purity falls by an order of magnitude and
-never recovers, while validation accuracy *degrades* from 0.423 to 0.230.
-
-An earlier version of this file reported the XY arm rising from 0.714 to 0.930
-across `mu_4`. That measurement was taken under the `n_layers * u` convention and
-on a different dataset, and does not survive the fix; it should not be cited.
-
-**Superseded by §7.** The sweep shows the direction is set by the learning rate,
-and that the guess in the previous sentence -- that `lr=5e-3` was too *high* -- had
-the sign backwards: at `lr = 1e-2` the same arms rescue. Read §7, not this table,
-for what the trajectory does.
+Measured here at one seed and superseded twice -- first by §7's learning-rate
+sweep, which showed the direction is set by the step size, then by `FINDINGS.md`
+§2, which showed at 10 seeds that the spread is the finding and the mean was
+hiding a 190-fold range. Read `FINDINGS.md` §2.
 
 ### Implications
 
@@ -175,9 +159,13 @@ so roughly 12 s per epoch at 10k events — a 100-epoch run is about 20 minutes 
 the full nine-cell arm matrix is a few CPU-hours.
 
 **Implication:** the simulation cost that killed the original partiqlegan approach
-is no longer the binding constraint. Analytic expectation values, small
-shared-weight circuits and native batching bring the whole ablation matrix inside
-a working day. Scaling in event size is the open question, not scaling in runs.
+is no longer the binding constraint -- analytic expectation values, small
+shared-weight circuits and native batching see to that.
+
+The per-run arithmetic that used to follow this paragraph did not survive
+measurement, and §10 corrects it: the *step* cost is flat in depth, the *compile*
+cost is not, so a run costs 200 s at `n_layers = 2` and 6800 s at 16. Depth is
+cheap per gradient and expensive per experiment.
 
 ---
 
@@ -262,33 +250,15 @@ edge and added the controls.
 
 ### The direction of the effect is set by the learning rate
 
-Change in closed-form g-purity from epoch 0 to epoch 40:
+What survives: the sign of the front end's effect on the encoded purity is set by
+the step size, not by the ansatz, and `lr = 1e-2` is where the movement appears at
+all. §3's "the front end drives purity down" was an artefact of too small a step.
 
-| lr | 1e-4 | 3e-4 | 1e-3 | 3e-3 | 1e-2 | 3e-2 | 1e-1 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| legacy + learned | -0.106 | -0.099 | -0.030 | +0.022 | **+0.635** | +0.091 | +0.451 |
-| XY + learned | -0.898 | -0.966 | -1.008 | -0.977 | **+0.205** | -- | -- |
-
-Monotone in `lr` through the sign change, in both arms. **§3's "the front end drives
-purity down" was an artefact of too small a step**, and the earlier guess that it
-was an instability at too *high* a rate had the sign backwards. At `lr = 1e-2` the
-legacy arm rises from 0.397 to 1.032, crossing `mu_4 = 0.8125`; the XY arm rises
-from 1.045 to 1.251.
-
-This is what the unflattening mechanism predicts. The encoder channel's gradient
-scales as `sigma^2` against the circuit channel's `sigma^4`, so what survives at
-clustered inputs is small but non-zero, and Adam's per-parameter normalisation
-turns it into an escape -- *if* the step is large enough to take it.
-
-Three checks that it is not an artefact:
-
-- **The exact statevector purity moves the same way** (legacy 0.258 -> 0.590, XY
-  0.119 -> 0.641 at `lr = 1e-2`), so this is a property of the state the circuit
-  prepares, not only of the closed form.
-- **Three seeds all rise** on the headline cell: 0.397 -> 1.032, 0.941, 0.626.
-- **The fixed arms are flat to the digit** -- raw 0.397 -> 0.397, whitened 0.297 ->
-  0.297 -- confirming they are flat by construction and that the moving arm is
-  moving because it is learning.
+The magnitudes are not quoted here any more. They were three seeds on the subset
+D105 fixed, and `FINDINGS.md` §2 replaces them with ten seeds on a representative
+one -- where the same cell turns out to land anywhere in [0.01, 1.91], so what the
+front end does on a floor-free Hamming arm is an unconstrained perturbation rather
+than a displacement with a direction.
 
 ### But it buys nothing on the task
 

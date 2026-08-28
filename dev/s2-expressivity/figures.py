@@ -14,7 +14,7 @@ Three claims, one figure each:
 3. ``angle_plane`` -- the angle distribution itself, in the two coordinates that
    separate its regimes (``DECISIONS.md`` D92). One point per qubit, never pooled.
 
-    python experiments/figures.py
+    python dev/s2-expressivity/figures.py
 """
 
 from __future__ import annotations
@@ -30,9 +30,12 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from partiqledtr.analysis import uniform_prior_mean
+from partiqledtr.models.qfm import N_QUBITS
+
 #: Repo root, resolved from this module rather than the working directory, so a
 #: driver behaves the same wherever it is started from.
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 RESULTS = ROOT / "results"
 FIGURES = ROOT / "figures"
 
@@ -111,6 +114,11 @@ def configurations() -> list[dict[str, Any]]:
             rows.setdefault(key, []).append(record)
 
     def get(record: dict[str, Any], name: str) -> Any:
+        # The `*_repaired` keys were written once, by a repair script that has since
+        # been retired: records produced before the purity subset was fixed (D105)
+        # measured the observable on one topology, and the recomputed value sits
+        # beside the original rather than over it. Anything recorded after the fix
+        # carries the plain key alone, which is what the fallback reads.
         final = record["final_metrics"]
         return final.get(f"{name}_repaired", final.get(name))
 
@@ -121,7 +129,7 @@ def configurations() -> list[dict[str, Any]]:
         # same run of the same thing, so it must not count twice.
         group = list({r["cell"]["seed"]: r for r in group}.values())
         final = [r["final_metrics"] for r in group]
-        mu = final[0]["purity_mu"]
+        mu = uniform_prior_mean(ansatz, N_QUBITS)
         known = [r["test_metrics"]["known"] for r in group]
         out.append(
             {

@@ -11,7 +11,7 @@ Tech stack:
 - Optax : optimizer and training loop
 - Fluksio : data science pipeline and experiment tracking
 
-References (`./references/`):
+References (`./reference/`, gitignored symlinks):
 - baumbauen: classical gnn based approach with message passing
 - partiqlegan: hybrid quantum-classical approach
 - reconstructing-paper & improving-paper: paper corresponding to the hybrid approach
@@ -29,7 +29,7 @@ This formulates the main hypothesis:
 > On floor-free polynomial-DLA ansaetze the encoder-channel rescue and g-purity dynamics predicted by the unflattening work are observable on naturally clustered kinematic inputs, while floored ansaetze show the predicted indifference.
 > The ansatz FCC (fourier-fingerprints) acts as an inductive-bias descriptor for the task.
 
-Measured so far (`RESEARCH.md` §1, §7-8), the first two clauses need amending:
+Measured so far (`docs/RESEARCH.md` §1, §7-8), the first two clauses need amending:
 
 - kinematic inputs are **not** naturally clustered under either sensible encoding;
   the clustered regime is reached only under the prior work's `p*E*pi` encoding,
@@ -47,14 +47,16 @@ clause is untested -- that is phase 5.
 Note:
 Fluksio is a relatively new framework (developed by myself).
 Documentation is available here: https://docs.fluksio.com/getting-started/data-science/
-If we hit any limitations or encounter problems, we should stop and flag them in `NOTEPAD.md` instead of trying workarounds.
+If we hit any limitations or encounter problems, we should stop and flag them in `docs/NOTEPAD.md` instead of trying workarounds.
 Then Fluksio will be fixed and we can continue.
 The same holds true for any limitations/issues with qml-essentials.
 
 ## Architecture
 
+![the model and its variants](docs/architecture.svg)
+
 ```
-partiqledtr/
+partiqledtr/    the model and its data generation -- nothing study-specific
 ├── data/       topology sampler · decay -> LCAG · features · phasespace generation
 │               · dataset assembly + stats · whitening (phase 4)
 ├── models/     elementwise residual front end · NRI message-passing GNN
@@ -63,21 +65,26 @@ partiqledtr/
 ├── metrics.py  per-element / Perfect-LCAG / valid-tree rate, class weights
 ├── analysis.py g-purity (product-state + exact) · DLA pre-check · encoding comparison
 ├── train.py    loss, training loop, checkpoints, fit/evaluate nodes
-└── pipeline.py the two Fluksio flows
-experiments/
-├── phase4b.py  submits and reports the three phase-4b arms
-├── figures.py  the phase-4b figures, and the csv behind figure 2
-├── repair_purity.py  recompute encoded-state observables on a fixed subset
-├── serve.sh    the engine, on ./.fluksio with enough runs in flight
-└── sweep.sh    every arm, in order, at N seeds
+└── pipeline.py the three Fluksio flows
+dev/            the research: one folder per study, plus the engine script
+├── serve.sh            the engine, on ./.fluksio with enough runs in flight
+├── s1-encoding-purity/ encoding x weight g-purity, before anything trains
+└── s2-expressivity/    phase 4b -- the three arms, the sweep, the figures
+docs/           the research record, and the diagram above
+├── architecture.d2 / .svg
+├── ROADMAP.md   the plan and the state of it
+├── RESEARCH.md  the measurement history
+├── FINDINGS.md  the claims
+├── DECISIONS.md why each implementation choice was made
+└── NOTEPAD.md   what the tooling cost
+tests/          run with `uv run pytest`
 ```
 
 Everything a run reads or writes sits at the repo root and is gitignored:
 `.fluksio/` (the engine's store, its own default location), `data/` (dataset splits
 exported from a `generate` run), `results/` (one json per arm), `figures/` and
-`logs/`. All of it is reproducible from `generate` plus `experiments/`, so none of
-it is tracked -- but the research record (`RESEARCH.md`, `FINDINGS.md`,
-`DECISIONS.md`, `ROADMAP.md`, `NOTEPAD.md`) now is.
+`logs/`. All of it is reproducible from `generate` plus `dev/`, so none of
+it is tracked -- but the research record in `docs/` now is.
 
 The model is a constellation of 4-qubit QFMs used as the *edge function* of a
 message-passing network, sharing one parameter set across every edge (which is
@@ -86,37 +93,41 @@ elementwise front end, parameter-free masked mean, per-node linear map -- so
 cross-particle structure can only come from the quantum part. Readout is per-qubit
 Pauli-Z plus a shared linear head, so nothing scales exponentially.
 
-Two flows: `generate` runs the phase-space simulation once, `train` consumes its
-artifacts and is the part a sweep repeats. Fluksio caches node results on their
+Three flows: `generate` runs the phase-space simulation once, `train` consumes its
+artifacts and is the part a sweep repeats, and `characterize` records what the arms
+*are* -- DLA certificates, encoding cells, the sampler's shape ceiling -- without
+touching a dataset. Fluksio caches node results on their
 inputs, so re-running an unchanged stage is nearly free. `fit` opts out
 (`cache=False`, D93): its fingerprint does not cover `train_model`, where the loop
 lives, so editing the loop would otherwise replay pre-change numbers silently --
 which it did once, and cost a re-run to notice.
 
-**Read `RESEARCH.md` before designing runs** -- the measurements there revise one of
-the premises below (see *Theoretical Motivation*), and `DECISIONS.md` records why
-each implementation choice was made.
+**Read `docs/FINDINGS.md` before designing runs** -- it is the current set of claims,
+`docs/RESEARCH.md` the measurement history behind them (and it revises one of the
+premises above), and `docs/DECISIONS.md` why each implementation choice was made.
 
 ## Running the experiments
 
-Prerequisites: `uv sync`, and a Fluksio engine (`fluksio serve`, or add `--local`
+Prerequisites: `uv sync`, and a Fluksio engine (`dev/serve.sh`, or add `--local`
 to any command to boot one in-process). **Run the engine and every script with
 `JAX_PLATFORMS=cpu`**: the arrays here are small enough that the GPU loses on both
 generation and training, and with a CUDA jaxlib installed the engine's per-node
-worker processes fight over the device (`DECISIONS.md` D99). `fluksio run` syncs
-the flows first, so there is no separate upload step. Node results are cached on their inputs, so
+worker processes fight over the device (`docs/DECISIONS.md` D99). Pass
+`--sync partiqledtr` to every `fluksio run`: the default sync root is the whole
+directory, which walks the vendored `reference/` checkouts and aborts on a module
+name they share, so the flows would silently not be uploaded (`docs/NOTEPAD.md`). Node results are cached on their inputs, so
 re-running something unchanged is nearly free; `--no-cache` forces re-execution.
 
 **1. Generate a dataset.** Defaults are 10 topologies *per group* (30 total, in
 three known/unknown groups) at 1000 events each:
 
 ```sh
-fluksio run generate --seed 0 --wait
+fluksio run generate --sync partiqledtr --seed 0 --wait
 ```
 
 Check the `stats` output before going further: `split_integrity_ok` must be true,
 and the angle-marginal figures are the phase-1 evidence. `encoding_report` prices
-each candidate encoding in g-purity, which is the measurement behind `RESEARCH.md`
+each candidate encoding in g-purity, which is the measurement behind `docs/RESEARCH.md`
 §1 -- read it before choosing an arm.
 
 **2. Train.** A dataset artifact is named on the command line by its digest, or by
@@ -159,11 +170,11 @@ The arms, all selected through flow inputs:
 `ternary_pair` weights qubit `q` by `3**(q mod 2)`, so the weighting repeats per
 particle: it is the only cell that is both dissociated (the spectral-preconditioning
 condition) and invariant under the endpoint swap, which is what lets arm B compose
-with a partition-respecting ansatz instead of undoing it (`DECISIONS.md` D100).
+with a partition-respecting ansatz instead of undoing it (`docs/DECISIONS.md` D100).
 
 `Matchgate` is retired as a reported arm -- `XY_AllPairs` took over its floored
 role and respects the two-particle partition as well -- but it stays runnable, so
-the phase-4 cells of `RESEARCH.md` §7 remain reproducible.
+the phase-4 cells of `docs/RESEARCH.md` §7 remain reproducible.
 
 The ROADMAP's three phase-4 input arms are `frontend=none, whiten=false` (raw),
 `frontend=none, whiten=true` (fixed whitening) and `frontend=mlp, whiten=false`
@@ -171,16 +182,20 @@ The ROADMAP's three phase-4 input arms are `frontend=none, whiten=false` (raw),
 regardless, so its acceptance report is always recorded.
 
 **3. Sweep the ablation matrix.** An ablation cell is one run of the same flow.
-Phase 4b's three arms are driven by `experiments/phase4b.py`, which submits every
+Phase 4b's three arms are driven by `dev/s2-expressivity/run.py`, which submits every
 cell at several seeds, keeps a bounded number in flight and writes one JSON per
 arm:
 
 ```sh
-python experiments/phase4b.py --dataset <generate-run-id> --arm a   # depth
-python experiments/phase4b.py --dataset <generate-run-id> --arm b   # encoding weights
-python experiments/phase4b.py --dataset <generate-run-id> --arm c   # ansatz
-python experiments/phase4b.py --report                              # tables
+python dev/s2-expressivity/run.py --arm a --fluksio <generate-run-id>   # depth
+python dev/s2-expressivity/run.py --arm b --fluksio <generate-run-id>   # encoding weights
+python dev/s2-expressivity/run.py --arm c --fluksio <generate-run-id>   # ansatz
+python dev/s2-expressivity/run.py --report                              # tables
 ```
+
+Dropping `--fluksio` runs the same cells in process instead, which is the sandbox
+path rather than a fork of the flow. `dev/s2-expressivity/README.md` has the whole
+study; `dev/s1-encoding-purity/README.md` the one that needs no training at all.
 
 Anything else is a grid over the same flow. Because the dataset arrives as
 artifact references, drive it from Python:
@@ -232,7 +247,7 @@ quantum arm sees.
 **5. The clustered control arm.** `--encoding legacy --angle_map legacy` runs
 partiqlegan's `p * E * pi` product encoding, whose angles collapse toward zero.
 That is the input regime where the unflattening rescue prediction is falsifiable;
-neither of the new encodings lands there (see `RESEARCH.md` §1).
+neither of the new encodings lands there (see `docs/RESEARCH.md` §1).
 
 Everything is also usable without an engine: the nodes are plain functions, so
 `assemble_dataset(...)` and `train_model(...)` can be called directly, which is
@@ -255,7 +270,7 @@ through the encoder channel. The expectation was that kinematic features cluster
 angles naturally (soft particles yield near-zero angles), putting this task in exactly the
 regime where the theory makes falsifiable predictions — observable as g-purity dynamics
 during training, with a floored (Matchgate) arm as control. **Measured, this holds for the
-old `p·E·π` encoding and not for the replacements** (`RESEARCH.md` §1), which changes what
+old `p·E·π` encoding and not for the replacements** (`docs/RESEARCH.md` §1), which changes what
 the input-distribution arm can claim. Second, the fourier-fingerprints work
 provides the FCC as a cheap, hardware-compatible descriptor of an ansatz's coefficient
 correlations; here it serves as an ansatz-selection metric, and tracking the spectrum
@@ -269,4 +284,4 @@ front end so cross-particle structure must come from the quantum part. This is a
 inductive-bias study, not an advantage claim — the relevant spectra admit classical
 surrogates, and the honest question is whether the trigonometric structure helps.
 
-See `ROADMAP.md` for the experimental plan.
+See `docs/ROADMAP.md` for the experimental plan.

@@ -10,7 +10,7 @@
 # Metric names are flow-qualified: `train.train_loss`, not `train_loss`.
 # `fluksio export metrics --flow train --status ok --list` names what is available.
 #
-# This is the whole arm-comparison table. `experiments/figures.py` still reads
+# This is the whole arm-comparison table. `dev/s2-expressivity/figures.py` still reads
 # `results/arm_*.json` because those also hold the pre-engine in-process runs;
 # once every cell has been re-run through the engine, this file is the source.
 #
@@ -19,7 +19,7 @@
 # are still in the engine and still legitimate as history; they are simply not this
 # table's rows.
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 SINCE=${SINCE:-2026-08-27T10:00}
 export FLUKSIO_URL=${FLUKSIO_URL:-http://127.0.0.1:8765}
 export FLUKSIO_TOKEN=${FLUKSIO_TOKEN:-$(python3 -c "import json;print(json.load(open('.fluksio/client.json'))['token'])")}

@@ -103,7 +103,7 @@ seeds beyond the headline cell.
 
 Opened by §9. Three arms, independent, cheapest first. **Trainable frequencies stay off in
 all of them** so the axes remain separable. All three are axes of the existing `train`
-flow; `experiments/phase4b.py` submits them. Decisions in `DECISIONS.md` D94-D99.
+flow; `dev/s2-expressivity/run.py` submits them. Decisions in `DECISIONS.md` D94-D99.
 
 **Arm A -- depth scan, current Hamming product encoding.**
 The per-feature spectrum is `2L + 1` and grows only linearly in depth: measured (3,3,3,3)

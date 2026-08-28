@@ -5,9 +5,9 @@
 # compile cost dominates (200 s per run at n_layers=2 against 6800 s at 16).
 # Everything the study reads or writes sits at the repo root, so this needs no mount.
 #
-#     experiments/sweep.sh [seeds] [jobs]
+#     dev/s2-expressivity/sweep.sh [seeds] [jobs]
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 SEEDS=${1:-10}
 JOBS=${2:-10}
 DATA=1787760161002-8bde9189   # the `generate` run the splits in ./data came from
@@ -20,7 +20,7 @@ export FLUKSIO_TOKEN=${FLUKSIO_TOKEN:-$(python3 -c "import json;print(json.load(
 
 for arm in c b baseline a; do
   echo "=== arm $arm starting $(date -u +%H:%M:%S) ==="
-  uv run python experiments/phase4b.py --arm "$arm" --seeds "$SEEDS" --jobs "$JOBS" \
+  uv run python dev/s2-expressivity/run.py --arm "$arm" --seeds "$SEEDS" --jobs "$JOBS" \
     --fluksio "$DATA" 2>&1 | grep -v "NVIDIA GPU"
   echo "=== arm $arm done $(date -u +%H:%M:%S) ==="
 done

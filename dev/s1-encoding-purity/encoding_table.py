@@ -5,7 +5,7 @@ spectral preconditioning is a property of data plus encoding, so if an exponenti
 spectrum lifts a collapsed encoding off the floor it has to show here first
 (``DECISIONS.md`` D97).
 
-    python experiments/encoding_table.py <generate-run-id>
+    python dev/s1-encoding-purity/encoding_table.py <generate-run-id>
 """
 
 from __future__ import annotations
