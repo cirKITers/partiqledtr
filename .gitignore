@@ -1,6 +1,15 @@
-*.md
-!README.md
+# The research record is the point of this repo, so it is tracked. Only editor
+# scratch and vendored papers are not.
 reference
+
+# Everything a run produces or consumes: the engine's store, the exported dataset
+# splits, per-arm results, figures and logs. Reproducible from `generate` plus
+# `experiments/`, and too large and too churny to track.
+.fluksio/
+data/
+results/
+figures/
+logs/
 
 ### Python ###
 # Byte-compiled / optimized / DLL files

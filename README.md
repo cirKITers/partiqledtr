@@ -59,11 +59,25 @@ partiqledtr/
 │               · dataset assembly + stats · whitening (phase 4)
 ├── models/     elementwise residual front end · NRI message-passing GNN
 │               · linear control · QFM constellation (phase 3)
+├── ansaetze.py the ansatz arms and their bond structure (phase 4b arm C)
 ├── metrics.py  per-element / Perfect-LCAG / valid-tree rate, class weights
-├── analysis.py g-purity (closed-form + exact) · DLA pre-check · encoding comparison
+├── analysis.py g-purity (product-state + exact) · DLA pre-check · encoding comparison
 ├── train.py    loss, training loop, checkpoints, fit/evaluate nodes
 └── pipeline.py the two Fluksio flows
+experiments/
+├── phase4b.py  submits and reports the three phase-4b arms
+├── figures.py  the phase-4b figures, and the csv behind figure 2
+├── repair_purity.py  recompute encoded-state observables on a fixed subset
+├── serve.sh    the engine, on ./.fluksio with enough runs in flight
+└── sweep.sh    every arm, in order, at N seeds
 ```
+
+Everything a run reads or writes sits at the repo root and is gitignored:
+`.fluksio/` (the engine's store, its own default location), `data/` (dataset splits
+exported from a `generate` run), `results/` (one json per arm), `figures/` and
+`logs/`. All of it is reproducible from `generate` plus `experiments/`, so none of
+it is tracked -- but the research record (`RESEARCH.md`, `FINDINGS.md`,
+`DECISIONS.md`, `ROADMAP.md`, `NOTEPAD.md`) now is.
 
 The model is a constellation of 4-qubit QFMs used as the *edge function* of a
 message-passing network, sharing one parameter set across every edge (which is
@@ -86,8 +100,11 @@ each implementation choice was made.
 ## Running the experiments
 
 Prerequisites: `uv sync`, and a Fluksio engine (`fluksio serve`, or add `--local`
-to any command to boot one in-process). `fluksio run` syncs the flows first, so
-there is no separate upload step. Node results are cached on their inputs, so
+to any command to boot one in-process). **Run the engine and every script with
+`JAX_PLATFORMS=cpu`**: the arrays here are small enough that the GPU loses on both
+generation and training, and with a CUDA jaxlib installed the engine's per-node
+worker processes fight over the device (`DECISIONS.md` D99). `fluksio run` syncs
+the flows first, so there is no separate upload step. Node results are cached on their inputs, so
 re-running something unchanged is nearly free; `--no-cache` forces re-execution.
 
 **1. Generate a dataset.** Defaults are 10 topologies *per group* (30 total, in
@@ -128,23 +145,45 @@ The arms, all selected through flow inputs:
 | axis | values | notes |
 | --- | --- | --- |
 | `model` | `gnn`, `mlp`, `qfm` | `qfm` requires `encoding="cartesian"` |
-| `ansatz` | `XY_Brickwork`, `Matchgate`, `Circuit_19` | quantum arm only |
+| `ansatz` | `XY_Brickwork`, `XY_Ring`, `XY_AllPairs`, `Circuit_19` | quantum arm only; phase 4b arm C |
 | `lr` | float | `1e-2` is where the rescue appears (§7); the default `1e-3` is below it |
 | `frontend` | `none`, `mlp` | `mlp` is the learned elementwise front end |
 | `whiten` | `false`, `true` | fixed isotropic preconditioning |
 | `encoding` | `angles`, `cartesian`, `legacy` | `cartesian` keeps `\|p\|`, needed by `qfm` |
 | `angle_map` | `pair_polar`, `legacy` | pair with `encoding=legacy` for the clustered arm |
-| `n_layers` | int | data-reuploading depth of the quantum arm |
+| `n_layers` | int | data-reuploading depth; phase 4b arm A |
+| `enc_weights` | `hamming`, `binary`, `ternary`, `ternary_pair` | per-qubit encoding weight; arm B |
+| `enc_reupload` | `diagonal`, `cyclic` | which features reach which qubit; arm B |
 | `dim`, `n_blocks` | ints | GNN width/depth; use for parameter matching |
+
+`ternary_pair` weights qubit `q` by `3**(q mod 2)`, so the weighting repeats per
+particle: it is the only cell that is both dissociated (the spectral-preconditioning
+condition) and invariant under the endpoint swap, which is what lets arm B compose
+with a partition-respecting ansatz instead of undoing it (`DECISIONS.md` D100).
+
+`Matchgate` is retired as a reported arm -- `XY_AllPairs` took over its floored
+role and respects the two-particle partition as well -- but it stays runnable, so
+the phase-4 cells of `RESEARCH.md` §7 remain reproducible.
 
 The ROADMAP's three phase-4 input arms are `frontend=none, whiten=false` (raw),
 `frontend=none, whiten=true` (fixed whitening) and `frontend=mlp, whiten=false`
 (learned). The whitening rotation is fitted on the training split for every run
 regardless, so its acceptance report is always recorded.
 
-**3. Sweep the ablation matrix.** The nine-cell phase-4 study is nine runs of the
-same flow. Because the dataset arrives as artifact references, drive it from
-Python:
+**3. Sweep the ablation matrix.** An ablation cell is one run of the same flow.
+Phase 4b's three arms are driven by `experiments/phase4b.py`, which submits every
+cell at several seeds, keeps a bounded number in flight and writes one JSON per
+arm:
+
+```sh
+python experiments/phase4b.py --dataset <generate-run-id> --arm a   # depth
+python experiments/phase4b.py --dataset <generate-run-id> --arm b   # encoding weights
+python experiments/phase4b.py --dataset <generate-run-id> --arm c   # ansatz
+python experiments/phase4b.py --report                              # tables
+```
+
+Anything else is a grid over the same flow. Because the dataset arrives as
+artifact references, drive it from Python:
 
 ```python
 from itertools import product
