@@ -25,7 +25,7 @@ a quantum-versus-classical question.
 
 ## 2. Two mechanisms pin the encoded distribution -- and what they pin is the *spread*
 
-*(figure 2, `figures/fig2_preconditioner_channel.csv`)*
+*(figure 2, `dev/s2-expressivity/figures/fig2_preconditioner_channel.csv`)*
 
 A trained preconditioner is the only thing in this architecture that can move the encoded
 angle distribution. What varies across arms is not how far it moves on average but

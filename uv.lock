@@ -1379,7 +1379,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.3" },
     { name = "optax", specifier = ">=0.2.8" },
     { name = "phasespace-jax", specifier = ">=2.0.0" },
-    { name = "qml-essentials", git = "https://github.com/cirKITers/qml-essentials?rev=59ed6adde3071a3075dd53b1efea016014c015dd" },
+    { name = "qml-essentials", specifier = ">=0.2.3" },
 ]
 
 [package.metadata.requires-dev]
@@ -1720,8 +1720,8 @@ wheels = [
 
 [[package]]
 name = "qml-essentials"
-version = "0.2.2"
-source = { git = "https://github.com/cirKITers/qml-essentials?rev=59ed6adde3071a3075dd53b1efea016014c015dd#59ed6adde3071a3075dd53b1efea016014c015dd" }
+version = "0.2.3"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "diffrax" },
     { name = "equinox" },
@@ -1730,6 +1730,10 @@ dependencies = [
     { name = "optax" },
     { name = "psutil" },
     { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/09/2b/10f92c3e7263845603f1f3b4b558b0348cc0a111520af94be1175448bd37/qml_essentials-0.2.3.tar.gz", hash = "sha256:add52a9e8a4dd0fa9b2d72b0fbe93a88c9216d3a925a08e5a24c9074fb9010ac", size = 8391925, upload-time = "2026-08-28T13:10:08.905Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0a/76/934fb75592beb191269807c1d9407a2a6b3a6b627e5cda86f88ff0761aa2/qml_essentials-0.2.3-py3-none-any.whl", hash = "sha256:8f7fa671b430a8fc3a9c1984b90a5f57d2b22c40e6a8e1f2b6de6172a5694e09", size = 203349, upload-time = "2026-08-28T13:10:06.824Z" },
 ]
 
 [[package]]

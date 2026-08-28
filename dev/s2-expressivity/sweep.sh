@@ -3,14 +3,14 @@
 #
 # Arms cheapest first; A last, because its deep circuits are unrolled and their
 # compile cost dominates (200 s per run at n_layers=2 against 6800 s at 16).
-# Everything the study reads or writes sits at the repo root, so this needs no mount.
+# Everything the study reads or writes sits in its own folder, so this needs no mount.
 #
 #     dev/s2-expressivity/sweep.sh [seeds] [jobs]
 set -u
 cd "$(dirname "$0")/../.."
 SEEDS=${1:-10}
 JOBS=${2:-10}
-DATA=1787760161002-8bde9189   # the `generate` run the splits in ./data came from
+DATA=1787760161002-8bde9189   # the `generate` run this study's ./data came from
 
 export JAX_PLATFORMS=cpu
 export FLUKSIO_URL=${FLUKSIO_URL:-http://127.0.0.1:8765}

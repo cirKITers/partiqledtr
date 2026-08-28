@@ -26,7 +26,8 @@ rather than be the only evidence for it (`docs/DECISIONS.md` D97).
 
 The measurement itself is a flow node, so it is versioned and cached rather than
 living here: `encoding_report` runs inside `generate`, and `encoding_cells` and
-`arm_report` inside `characterize`. This folder holds the renderer.
+`arm_report` inside `characterize`. This folder holds the renderer, and its
+gitignored `results/` the exported reports of the runs the tables above quote.
 
 ```sh
 fluksio run generate --seed 0 --wait          # or reuse a finished run

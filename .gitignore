@@ -2,13 +2,13 @@
 # scratch and vendored papers are not.
 reference
 
-# Everything a run produces or consumes: the engine's store, the exported dataset
-# splits, per-arm results, figures and logs. Reproducible from `generate` plus
-# `experiments/`, and too large and too churny to track.
+# Everything a run produces or consumes: the engine's store, and each study's own
+# exported dataset splits, per-arm results, figures and logs. Reproducible from
+# `generate` plus `dev/`, and too large and too churny to track.
 .fluksio/
-data/
-results/
-figures/
+dev/*/data/
+dev/*/results/
+dev/*/figures/
 logs/
 
 ### Python ###

@@ -73,6 +73,7 @@ dev/            the research: one folder per study, plus the engine script
 ├── serve.sh            the engine, on ./.fluksio with enough runs in flight
 ├── s1-encoding-purity/ encoding x weight g-purity, before anything trains
 └── s2-expressivity/    phase 4b -- the three arms, the sweep, the figures
+                        each study keeps its own data/ results/ figures/ logs/
 docs/           the research record, and the diagram above
 ├── architecture.d2 / .svg
 ├── ROADMAP.md   the plan and the state of it
@@ -83,11 +84,12 @@ docs/           the research record, and the diagram above
 tests/          run with `uv run pytest`
 ```
 
-Everything a run reads or writes sits at the repo root and is gitignored:
-`.fluksio/` (the engine's store, its own default location), `data/` (dataset splits
-exported from a `generate` run), `results/` (one json per arm), `figures/` and
-`logs/`. All of it is reproducible from `generate` plus `dev/`, so none of
-it is tracked -- but the research record in `docs/` now is.
+Everything a run reads or writes is gitignored: `.fluksio/` (the engine's store, at
+the repo root, its own default location), the root `logs/` (the engine's own output),
+and inside each study folder its `data/` (dataset splits exported from a `generate`
+run), `results/` (one json per arm or report), `figures/` and `logs/`. All of it is
+reproducible from `generate` plus `dev/`, so none of it is tracked -- but the research
+record in `docs/` now is.
 
 The model is a constellation of 4-qubit QFMs used as the *edge function* of a
 message-passing network, sharing one parameter set across every edge (which is

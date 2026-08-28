@@ -33,11 +33,11 @@ import matplotlib.pyplot as plt
 from partiqledtr.analysis import uniform_prior_mean
 from partiqledtr.models.qfm import N_QUBITS
 
-#: Repo root, resolved from this module rather than the working directory, so a
-#: driver behaves the same wherever it is started from.
-ROOT = Path(__file__).resolve().parents[2]
-RESULTS = ROOT / "results"
-FIGURES = ROOT / "figures"
+#: This study's folder, resolved from this module rather than the working directory,
+#: so a driver behaves the same wherever it is started from.
+STUDY = Path(__file__).resolve().parent
+RESULTS = STUDY / "results"
+FIGURES = STUDY / "figures"
 
 #: Categorical slots 1-3 of the validated palette. Three is the cap for scatter
 #: forms, where every pair is on screen at once; the fourth slot fails the

@@ -42,5 +42,6 @@ dev/s2-expressivity/export.sh                    # the engine's own view, as csv
 
 `run.py` also runs in process (`--arm c`, no `--fluksio`), which is the sandbox path
 rather than a fork of the flow — it calls the same `train_model` the `fit` node calls
-(`docs/DECISIONS.md` D104). Everything reads and writes `results/`, `data/` and
-`figures/` at the repo root, all gitignored and all reproducible from `generate`.
+(`docs/DECISIONS.md` D104). Everything reads and writes this folder's own `data/`,
+`results/`, `figures/` and `logs/`, all gitignored and all reproducible from
+`generate`.

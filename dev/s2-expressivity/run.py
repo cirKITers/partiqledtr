@@ -39,11 +39,11 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Any
 
-#: Repo root, resolved from this module rather than the working directory, so a
-#: driver behaves the same wherever it is started from.
-ROOT = Path(__file__).resolve().parents[2]
-DATA = ROOT / "data"
-OUT = ROOT / "results"
+#: This study's folder, resolved from this module rather than the working directory,
+#: so a driver behaves the same wherever it is started from.
+STUDY = Path(__file__).resolve().parent
+DATA = STUDY / "data"
+OUT = STUDY / "results"
 
 BASE: dict[str, Any] = {"model": "qfm", "encoding": "cartesian", "ansatz": "XY_Brickwork"}
 ANSATZ_ARMS = ("XY_Brickwork", "XY_Ring", "XY_AllPairs", "Circuit_19")
