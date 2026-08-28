@@ -13,18 +13,45 @@ from qml_essentials.algebra import (
 )
 
 from partiqledtr.analysis import (
-    ANSAETZE,
-    G_PURITY_BY_ANSATZ,
     angle_stats,
     ansatz_generators,
     dla_basis,
     dla_check,
     g_purity_exact,
-    g_purity_full,
     g_purity_offdiag,
-    g_purity_su,
     offdiag_uniform_mean,
+    product_state_purity,
+    uniform_prior_mean,
 )
+from partiqledtr.ansaetze import ANSAETZE, circuit
+
+# The two closed forms production no longer carries: `product_state_purity` reads
+# them off the DLA basis instead (D94). They stay here as independent oracles --
+# hand-derived from the manuscript, so a bug in the general routine cannot hide.
+
+
+def g_purity_full(theta):
+    """Matchgate (so(2n)) g-purity of an RY product state, by the O(n) recurrence."""
+    c, s = jnp.cos(theta) ** 2, jnp.sin(theta) ** 2
+    cross = jnp.zeros(theta.shape[:-1])
+    w = jnp.zeros(theta.shape[:-1])
+    for k in range(theta.shape[-1]):
+        cross = cross + s[..., k] * w
+        w = c[..., k] * w + s[..., k]
+    return c.sum(axis=-1) + cross
+
+
+def g_purity_su(theta):
+    """su(2**n) g-purity: 2**n - 1 for every pure state, so input-independent."""
+    return jnp.full(theta.shape[:-1], 2.0 ** theta.shape[-1] - 1.0)
+
+
+#: Arm -> its hand-derived closed form, where one exists.
+CLOSED_FORMS = {
+    "XY_Brickwork": g_purity_offdiag,
+    "Matchgate": g_purity_full,
+    "Circuit_19": g_purity_su,
+}
 
 SEED = 20260824
 # jax runs in float32 by default; the references are float64.
@@ -246,8 +273,67 @@ def test_purity_batches_over_leading_axes():
         )
 
 
-def test_g_purity_by_ansatz_covers_every_arm():
-    assert set(G_PURITY_BY_ANSATZ) == set(ANSAETZE)
+@pytest.mark.parametrize("ansatz", list(CLOSED_FORMS))
+@pytest.mark.parametrize("n", [2, 3, 4])
+def test_product_state_purity_reproduces_the_closed_forms(ansatz, n):
+    """The general routine against the three hand-derived series (D94).
+
+    `product_state_purity` sums over the arm's own DLA basis, which is what lets a
+    new ansatz be measured at all; that generality is only worth having if it
+    agrees exactly with the manuscript's closed forms where those exist.
+    """
+    rng = np.random.default_rng(SEED + 9)
+    theta = _angles((7, n), rng)
+    np.testing.assert_allclose(
+        np.asarray(product_state_purity(theta, ansatz)),
+        np.asarray(CLOSED_FORMS[ansatz](theta)),
+        rtol=RTOL,
+        atol=ATOL,
+    )
+
+
+@pytest.mark.parametrize("n", [2, 3, 4, 6])
+def test_uniform_prior_mean_generalises_the_offdiag_closed_form(n):
+    """mu_n read off the basis must equal the manuscript's series for XY_Brickwork.
+
+    Every sin^2 and cos^2 factor averages to 1/2, so a Y-free word on m qubits
+    contributes 2**-m -- the same sum the closed form spells out by separation.
+    """
+    assert uniform_prior_mean("XY_Brickwork", n) == pytest.approx(offdiag_uniform_mean(n))
+
+
+@pytest.mark.parametrize(
+    ("ansatz", "dim_g", "d_z", "pi_invariant"),
+    [
+        ("XY_Brickwork", 12, 0, False),
+        ("XY_Ring", 24, 0, True),
+        ("XY_AllPairs", 60, 6, True),
+        ("Circuit_19", 255, 15, True),
+    ],
+)
+def test_arm_certificates_at_the_constellation_size(ansatz, dim_g, d_z, pi_invariant):
+    """What each phase-4b arm is, measured rather than asserted (ROADMAP 4b arm C).
+
+    `XY_Ring` is the load-bearing one: the 4-cycle is an even cycle, hence
+    bipartite, hence d_Z = 0, so it respects the two-particle partition *and* stays
+    input-distribution sensitive -- the two criteria the ROADMAP expected to
+    conflict. `XY_AllPairs` adds triangles and the floor comes back.
+    """
+    record = dla_check(ansatz, n_qubits=4)
+    assert (record["dim_g"], record["n_diag_words"]) == (dim_g, d_z)
+    assert not record["capped"]
+
+    # The endpoint swap acts on the wires as pi = (0 2)(1 3), since qubits 0, 1
+    # carry particle A's angles and 2, 3 carry particle B's.
+    swap = {0: 2, 1: 3, 2: 0, 3: 1}
+    bonds = {
+        frozenset(bond)
+        for block in circuit(ansatz).structure()
+        if block.topology is not None
+        for bond in block.topology(n_qubits=4, **block.kwargs)
+    }
+    mapped = {frozenset(swap[q] for q in bond) for bond in bonds}
+    assert (mapped == bonds) is pi_invariant
 
 
 @needs_reference
@@ -305,20 +391,16 @@ def test_cap_truncates_and_says_so(ansatz):
         dla_check(ansatz, n_qubits=4, max_dim=1)
 
 
-@pytest.mark.parametrize(
-    ("ansatz", "expected"),
-    [("XY_Brickwork", 0), ("Matchgate", 4), ("Circuit_19", 15)],
-)
-def test_diagonal_word_count_at_the_constellation_size(ansatz, expected):
-    """The floored/floor-free certificate at the size actually used, n_qubits=4 (D52).
+def test_retired_arms_stay_certifiable():
+    """Matchgate is no longer an arm but must stay measurable (D98).
 
-    Circuit_19's 2**n - 1 was the one documented value with no test behind it, and
-    it is the arm whose whole reading -- input-distribution independent, no front
-    end can help -- rests on saturating su(2**n).
+    "Retired" means out of the reported arm set, not out of the codebase: the
+    phase-4 cells of RESEARCH.md §7 have to remain reproducible, and the Matchgate
+    certificate is the independent check on `ansatz_generators` itself.
     """
-    record = dla_check(ansatz, n_qubits=4)
-    assert record["n_diag_words"] == expected
-    assert not record["capped"]
+    assert "Matchgate" not in ANSAETZE
+    record = dla_check("Matchgate", n_qubits=4)
+    assert (record["dim_g"], record["n_diag_words"]) == (28, 4)
 
 
 def test_exact_purity_matches_the_closed_form_on_a_product_state():
@@ -336,9 +418,10 @@ def test_exact_purity_matches_the_closed_form_on_a_product_state():
         half = angles[:, qubit, None] / 2.0
         states = np.concatenate([states * np.cos(half), states * np.sin(half)], axis=1)
 
-    for ansatz, closed in G_PURITY_BY_ANSATZ.items():
+    for ansatz in ANSAETZE:
         exact = g_purity_exact(states, dla_basis(ansatz, 4))
-        np.testing.assert_allclose(exact, np.asarray(closed(jnp.asarray(angles))), atol=1e-6)
+        general = product_state_purity(jnp.asarray(angles), ansatz)
+        np.testing.assert_allclose(exact, np.asarray(general), atol=1e-6)
 
 
 def test_angle_stats_separates_uniform_pinned_and_clustered():
@@ -391,3 +474,36 @@ def test_angle_stats_rejects_malformed_input():
         angle_stats(np.zeros(10))
     with pytest.raises(ValueError, match="no angles"):
         angle_stats(np.zeros((0, 4)))
+
+
+def test_characterisation_nodes_record_what_the_tables_claim():
+    """The phase-4b tables have to come from a run, not from a typed-in number (D102).
+
+    Cheap enough to check end to end: the arm certificates and the encoding-cell
+    characterisation are what `RESEARCH.md` §10 reports, so a drift between code
+    and document shows up here rather than in review.
+    """
+    from partiqledtr.analysis import arm_report, encoding_cells
+
+    arms = arm_report(n_qubits=4)["arm_report"]
+    assert set(arms) == set(ANSAETZE)
+    assert arms["XY_Ring"]["n_diag_words"] == 0 and arms["XY_Ring"]["dim_g"] == 24
+    assert arms["XY_AllPairs"]["n_diag_words"] == 6
+    # The arm C claim in one line: partition-respecting and still floor-free.
+    assert arms["XY_Ring"]["swap_invariant"] and not arms["XY_Brickwork"]["swap_invariant"]
+
+    cells = encoding_cells(n_qubits=4, n_samples=2000)["encoding_cells"]
+    assert not cells["hamming-cyclic"]["dissociated"]
+    assert cells["ternary-cyclic"]["dissociated"]
+    # Among the cells that actually enrich the spectrum, only the paired exponent
+    # is both dissociated and swap-invariant -- which is why it exists (D100). The
+    # diagonal cells qualify vacuously: a diagonal W has no cross terms to kill and
+    # no per-feature comb to widen, so they are excluded by n_freqs, not by hand.
+    enriching = {
+        key
+        for key, cell in cells.items()
+        if isinstance(cell, dict) and "purity" in cell and min(cell["n_freqs"]) > 5
+    }
+    assert enriching, "the n_freqs filter has to select something"
+    both = {k for k in enriching if cells[k]["dissociated"] and cells[k]["swap_invariant"]}
+    assert both == {"ternary_pair-cyclic"}

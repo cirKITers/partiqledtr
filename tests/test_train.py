@@ -146,6 +146,8 @@ def test_overfits_a_tiny_batch(capsys):
         "ansatz": "XY_Brickwork",
         "n_layers": 2,
         "angle_map": "pair_polar",
+        "enc_weights": "hamming",
+        "enc_reupload": "diagonal",
         # Carried in the config, not beside it, so `evaluate` rebuilds the arm it
         # scored rather than silently dropping the rotation (D81).
         "whitening": None,
@@ -476,3 +478,40 @@ def test_classical_arm_omits_the_angle_ports():
             break
     assert not {"g_purity", "tv_uniform", "mean_sin2"} & set(records[0])
     assert "angle_stats_final" not in final
+
+
+def test_purity_subset_is_drawn_across_the_split_not_sliced_off_it():
+    """The phase-4 observable has to describe the data, not its first topology (D105).
+
+    Splits are assembled topology by topology, so `val[:n]` is one topology at one
+    multiplicity. Measured that way the g-purity of two different encodings agreed
+    to 1% while they differ by 1.8x across the whole split -- the observable was
+    reporting the sample. The subset stays fixed across arms and seeds, so a purity
+    difference between two cells is still a difference between the cells.
+    """
+    n_events, n_purity = 400, 64
+    # Topology 0 fills the front of the split, as the real assembler leaves it.
+    split = _split(n=n_events, n_fsps=L)
+    split["topology_id"] = (np.arange(n_events) // 100).astype(np.int32)
+    # Give each topology a distinguishable feature scale, so a biased subset shows.
+    split["features_cartesian"] = (
+        split["features_cartesian"] * (1.0 + split["topology_id"])[:, None, None]
+    )
+
+    # Built directly rather than through the registry: `g_purity` is the quantum
+    # arm's, and `build_model` is typed as returning any module.
+    from partiqledtr.models.qfm import QFMConstellation
+    from partiqledtr.train import _PURITY_SEED, _split_arrays
+
+    module = QFMConstellation(4, C, ansatz="XY_Ring", seed=SEED, rngs=nnx.Rngs(SEED))
+
+    features, mask, _ = _split_arrays(split, "cartesian")
+    take = np.random.default_rng(_PURITY_SEED).choice(n_events, size=n_purity, replace=False)
+
+    assert len(set(split["topology_id"][take].tolist())) > 1, "the subset must span topologies"
+    drawn = float(module.g_purity(jnp.asarray(features[take]), jnp.asarray(mask[take])))
+    whole = float(module.g_purity(jnp.asarray(features), jnp.asarray(mask)))
+    sliced = float(module.g_purity(jnp.asarray(features[:n_purity]), jnp.asarray(mask[:n_purity])))
+    # The drawn subset tracks the whole split; the sliced one need not.
+    assert abs(drawn - whole) < abs(sliced - whole) or abs(sliced - whole) < 1e-6
+    assert drawn == pytest.approx(whole, rel=0.25)

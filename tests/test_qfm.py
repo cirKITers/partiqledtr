@@ -1,20 +1,27 @@
 """QFM constellation: encoding wiring, equivariance, gradients and the whitening arm."""
 
+import itertools
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 from flax import nnx
 
-from partiqledtr.analysis import G_PURITY_BY_ANSATZ, offdiag_uniform_mean
+from partiqledtr.analysis import offdiag_uniform_mean, product_state_purity
 from partiqledtr.data.features import apply_normalization, normalization_scales
 from partiqledtr.data.whitening import fit_whitening, purity_of_rotation, sample_rotation
 from partiqledtr.models import MODELS, n_params
 from partiqledtr.models.frontend import ElementwiseResidualMLP
 from partiqledtr.models.qfm import (
     ANSAETZE,
+    ENC_REUPLOAD,
+    ENC_WEIGHTS,
+    N_ANGLES,
     N_QUBITS,
     QFMConstellation,
+    encoding_matrix,
+    encoding_spectrum,
     legacy_angles,
     make_qfm,
     pair_polar,
@@ -26,7 +33,7 @@ C = 3
 # Trainable parameters per QFM at n_qubits=4, n_layers=2 (so 3 implemented ansatz
 # layers, Schuld's L+1 for a data-reuploading model). Recorded from the ansatz
 # definitions and frozen: a change here means the arm's circuit changed.
-QFM_PARAMS = {"XY_Brickwork": 18, "Matchgate": 21, "Circuit_19": 36}
+QFM_PARAMS = {"XY_Brickwork": 18, "XY_Ring": 18, "XY_AllPairs": 36, "Circuit_19": 36}
 
 
 def _batch(rng, batch=3, n_leaves=4):
@@ -38,23 +45,110 @@ def _model(**kwargs):
     return QFMConstellation(4, C, rngs=nnx.Rngs(SEED), seed=SEED, **kwargs)
 
 
-@pytest.mark.parametrize("ansatz", ANSAETZE)
+@pytest.mark.parametrize(
+    ("ansatz", "weights", "reupload"),
+    [(a, "hamming", "diagonal") for a in ANSAETZE]
+    + [("XY_Ring", w, r) for w in ENC_WEIGHTS for r in ENC_REUPLOAD],
+)
 @pytest.mark.parametrize("n_layers", [1, 2, 3])
-def test_encoding_is_a_ry_product_state(ansatz, n_layers):
-    """With zero ansatz parameters the readout must be exactly cos(n_layers * u).
+def test_encoding_is_a_ry_product_state(ansatz, n_layers, weights, reupload):
+    """With zero ansatz parameters the readout must be exactly cos(n_layers * W u).
 
-    This pins the whole encoding contract at once: that the diagonal
-    ``data_reupload`` mask sends feature f to qubit f alone, that the observables
-    come back in qubit order, that reuploading multiplies the angle, and that the
-    encoded state is the RY product state the g-purity closed forms assume (D25).
+    This pins the whole encoding contract at once: that the re-upload mask sends
+    each feature to the qubits it claims, that a qubit's several RY gates add into
+    one angle, that the observables come back in qubit order, that re-uploading
+    multiplies the angle, and that the encoded state is the RY product state the
+    purity forms assume (D25, D55, D96). The arm-B generalisation of the phase-3
+    ``cos(n_layers * u)`` law is exactly the appearance of ``W``.
     """
-    qfm = make_qfm(ansatz, n_layers=n_layers, seed=SEED)
+    qfm = make_qfm(ansatz, n_layers=n_layers, seed=SEED, enc_weights=weights, enc_reupload=reupload)
     u = jnp.asarray(np.random.default_rng(SEED).uniform(0, np.pi, size=(5, N_QUBITS)))
+    matrix = encoding_matrix(weights, reupload)
 
     out = qfm(params=jnp.zeros_like(jnp.asarray(np.asarray(qfm.params))), inputs=u)
 
     assert out.shape == (5, N_QUBITS)
-    assert np.allclose(np.asarray(out), np.cos(n_layers * np.asarray(u)), atol=1e-6)
+    expected = np.cos(n_layers * (np.asarray(u) @ matrix.T))
+    assert np.allclose(np.asarray(out), expected, atol=1e-4)
+
+
+def _signs():
+    """Every eps in {-1,0,1}^n except zero."""
+    signs = np.array(list(itertools.product((-1, 0, 1), repeat=N_QUBITS)))
+    return signs[np.any(signs != 0, axis=1)]
+
+
+def _dissociated(weights, reupload):
+    """No signed subset relation among the columns: W^T eps != 0 for every eps != 0."""
+    return bool(np.all(np.any(_signs() @ encoding_matrix(weights, reupload) != 0, axis=1)))
+
+
+def _swap_equivariant(weights, reupload):
+    """W[pi(q), pi(f)] == W[q, f] for the endpoint swap pi = (0 2)(1 3)."""
+    matrix = encoding_matrix(weights, reupload)
+    order = [(q + N_ANGLES) % N_QUBITS for q in range(N_QUBITS)]
+    return bool(np.array_equal(matrix[order][:, order], matrix))
+
+
+def test_ternary_cyclic_is_the_dissociated_cell():
+    r"""Arm B's premise, checked by exhaustion rather than by citation.
+
+    Spectral preconditioning needs the weight map to kill every cross term of the
+    purity average, which for a weight matrix W means no signed subset relation:
+    W^T eps != 0 for every eps in {-1,0,1}^n \ 0. Equal weights fail it -- that is
+    the manuscript's point about Hamming encodings -- and so does a widened mask
+    with equal weights, which is what makes ``hamming-cyclic`` the control that
+    separates *mixing* from *dissociation*.
+    """
+    assert _dissociated("ternary", "cyclic")
+    assert _dissociated("binary", "cyclic")
+    assert not _dissociated("hamming", "cyclic")
+    # The diagonal cells are separable, so they are dissociated for a trivial
+    # reason and carry no cross-feature preconditioning at all.
+    assert all(_dissociated(w, "diagonal") for w in ENC_WEIGHTS)
+
+
+def test_only_the_paired_exponent_is_dissociated_and_swap_equivariant():
+    """The cell that composes with a partition-respecting ansatz (D100).
+
+    Exponential weights `base ** q` distinguish the qubits, which is what makes
+    them dissociated -- and the endpoint swap pi = (0 2)(1 3) exchanges the two
+    particles' qubits, so `3 ** q` is *not* invariant under it and would undo the
+    equivariance `XY_Ring` restores. Repeating the exponent per particle,
+    `3 ** (q mod 2)`, satisfies both: the dissociation condition is on the weight
+    *matrix*, not on a per-qubit vector, and the widened mask leaves it enough
+    room.
+    """
+    assert _swap_equivariant("ternary_pair", "cyclic")
+    assert _dissociated("ternary_pair", "cyclic")
+    # Neither of the two families it sits between manages both.
+    assert _swap_equivariant("hamming", "cyclic") and not _dissociated("hamming", "cyclic")
+    assert _dissociated("ternary", "cyclic") and not _swap_equivariant("ternary", "cyclic")
+    # ... and it costs nothing in spectrum: same comb as the full ternary cell.
+    for cell in ("ternary", "ternary_pair"):
+        matrix = encoding_matrix(cell, "cyclic")
+        assert min(len(encoding_spectrum(matrix, f, 2)) for f in range(N_QUBITS)) == 17
+
+
+def test_widening_the_mask_enlarges_the_per_feature_spectrum():
+    """The other half of arm B: a richer comb, not merely a bigger angle (D97).
+
+    Ternary weights on the diagonal mask only rescale one qubit's single frequency;
+    it takes the widened mask for a feature to reach several qubits and for the
+    Minkowski sum of their combs to become the exponential spectrum.
+    """
+    reachable = {
+        (weights, reupload): min(
+            len(encoding_spectrum(encoding_matrix(weights, reupload), f, 2))
+            for f in range(N_QUBITS)
+        )
+        for weights, reupload in itertools.product(ENC_WEIGHTS, ENC_REUPLOAD)
+    }
+
+    assert reachable["hamming", "diagonal"] == 5
+    assert reachable["ternary", "diagonal"] == 5  # scaled, not enriched
+    assert reachable["ternary", "cyclic"] > 3 * reachable["hamming", "diagonal"]
+    assert reachable["ternary", "cyclic"] > reachable["binary", "cyclic"] > 5
 
 
 @pytest.mark.parametrize("ansatz", ANSAETZE)
@@ -68,6 +162,10 @@ def test_make_qfm_validates_its_arguments():
         make_qfm("Circuit_42")
     with pytest.raises(ValueError, match="n_layers"):
         make_qfm("Matchgate", n_layers=0)
+    with pytest.raises(ValueError, match="enc_weights"):
+        make_qfm("XY_Ring", enc_weights="octal")
+    with pytest.raises(ValueError, match="reupload"):
+        make_qfm("XY_Ring", enc_reupload="dense")
 
 
 def test_pair_polar_maps_coordinate_pairs_into_the_full_circle():
@@ -249,7 +347,7 @@ def test_closed_form_and_exact_purity_agree_in_the_clustered_limit(ansatz):
 
     closed = float(model.g_purity(x, mask))
     exact = model.g_purity_exact(x, mask)
-    floor = {"XY_Brickwork": 0.0, "Matchgate": float(N_QUBITS), "Circuit_19": 2.0**N_QUBITS - 1}
+    floor = {"XY_Brickwork": 0.0, "XY_Ring": 0.0, "XY_AllPairs": 6.0, "Circuit_19": 15.0}
 
     assert closed == pytest.approx(exact, abs=1e-4)
     assert closed == pytest.approx(floor[ansatz], abs=1e-4)
@@ -267,7 +365,7 @@ def test_g_purity_uses_the_encoded_angle_not_the_reuploaded_one():
     purities = {n: float(_model(n_layers=n).g_purity(x, mask)) for n in (1, 2, 3)}
     assert purities[1] == pytest.approx(purities[2]) == pytest.approx(purities[3])
 
-    expected = float(jnp.mean(G_PURITY_BY_ANSATZ["XY_Brickwork"](_model().edge_angles(x, mask))))
+    expected = float(jnp.mean(product_state_purity(_model().edge_angles(x, mask), "XY_Brickwork")))
     assert purities[2] == pytest.approx(expected)
 
 
@@ -288,7 +386,9 @@ def test_legacy_angle_map_clusters_where_pair_polar_does_not():
     energy = np.sqrt((momenta**2).sum(-1, keepdims=True) + 1.0)
     p4 = np.concatenate([momenta, energy], axis=-1)
 
-    purity = G_PURITY_BY_ANSATZ["XY_Brickwork"]
+    def purity(theta):
+        return product_state_purity(theta, "XY_Brickwork")
+
     mu_4 = offdiag_uniform_mean(N_QUBITS)
 
     def edge_purity(encoding, angle_map):
