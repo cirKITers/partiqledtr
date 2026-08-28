@@ -65,6 +65,11 @@ CONFIG_KEY = "#config"
 #: does not re-initialise the other (``DECISIONS.md`` D84).
 _FRONTEND_SEED_OFFSET = 1 << 20
 
+#: Seed of the g-purity measurement subset. Deliberately *not* the run's seed: every
+#: arm and every seed has to measure the observable on the same events, or a purity
+#: difference between two cells could be a difference between two samples (D105).
+_PURITY_SEED = 987654321
+
 
 def lcag_loss(logits: jax.Array, labels: jax.Array, weights: jax.Array) -> jax.Array:
     """Class-weighted softmax cross-entropy over the scored LCAG cells.
@@ -126,6 +131,8 @@ def build_model(
     ansatz: str = "XY_Brickwork",
     n_layers: int = 2,
     angle_map: str = "pair_polar",
+    enc_weights: str = "hamming",
+    enc_reupload: str = "diagonal",
     whitening: Any = None,
 ) -> nnx.Module:
     """Construct a model and its optional front end from the registry strings.
@@ -147,6 +154,10 @@ def build_model(
         n_layers: Data-reuploading depth of the quantum model.
         angle_map: Four-vector-to-angle map of the quantum model, a key of
             :data:`partiqledtr.models.qfm.ANGLE_MAPS`.
+        enc_weights: Encoding weight strategy of the quantum model, a key of
+            :data:`partiqledtr.models.qfm.ENC_WEIGHTS`.
+        enc_reupload: Re-upload mask of the quantum model, a key of
+            :data:`partiqledtr.models.qfm.ENC_REUPLOAD`.
         whitening: Optional fixed rotation for the quantum model's whitening arm.
             A nested list is accepted, which is how a checkpoint carries it (D81).
 
@@ -177,6 +188,8 @@ def build_model(
         "ansatz": ansatz,
         "n_layers": n_layers,
         "angle_map": angle_map,
+        "enc_weights": enc_weights,
+        "enc_reupload": enc_reupload,
         "seed": seed,
     }
     if whitening is not None:
@@ -434,6 +447,8 @@ def train_model(
     ansatz: str = "XY_Brickwork",
     n_layers: int = 2,
     angle_map: str = "pair_polar",
+    enc_weights: str = "hamming",
+    enc_reupload: str = "diagonal",
     whitening: Any = None,
     n_purity_events: int = 64,
 ) -> Generator[dict[str, float], None, tuple[nnx.Module, dict[str, Any]]]:
@@ -467,6 +482,8 @@ def train_model(
         angle_map: Four-vector-to-angle map of the quantum model. Pair it with the
             matching ``encoding``: ``"legacy"`` with ``"legacy"``, otherwise
             ``"cartesian"``.
+        enc_weights: Encoding weight strategy of the quantum model (arm B).
+        enc_reupload: Re-upload mask of the quantum model (arm B).
         whitening: Optional fixed ``(4, 4)`` rotation for the whitening arm.
         n_purity_events: Validation events the g-purity is measured on each epoch.
 
@@ -503,6 +520,8 @@ def train_model(
         "ansatz": ansatz,
         "n_layers": int(n_layers),
         "angle_map": angle_map,
+        "enc_weights": enc_weights,
+        "enc_reupload": enc_reupload,
         # In the config, not beside it: the rotation is part of what the model *is*,
         # and it is not an nnx.Param, so a checkpoint that did not carry it would
         # rebuild the whitened arm as the raw one and score it on the wrong angles
@@ -514,7 +533,8 @@ def train_model(
     weights = jnp.asarray(class_weights(labels, n_classes), dtype=jnp.float32)
 
     # A fixed validation subset, so the purity series tracks the model rather than
-    # the sample. Only the arms that encode quantum states expose g_purity.
+    # the sample -- fixed *and* drawn across the split, which is not the same thing
+    # (D105). Only the arms that encode quantum states expose g_purity.
     measure_purity = getattr(module, "g_purity", None)
     measure_angles = getattr(module, "angle_stats", None)
     purity_batch = None
@@ -523,7 +543,12 @@ def train_model(
     angles: dict[str, list[float]] | None = None
     if measure_purity is not None:
         val_features, val_mask, _ = _split_arrays(val, encoding)
-        take = slice(0, min(n_purity_events, len(val_mask)))
+        # Drawn at random, not sliced off the front: the split is ordered by
+        # topology, so `val[:64]` is one topology at one multiplicity, and the
+        # observable then describes that corner rather than the data (D105).
+        take = np.random.default_rng(_PURITY_SEED).choice(
+            len(val_mask), size=min(n_purity_events, len(val_mask)), replace=False
+        )
         purity_batch = (jnp.asarray(val_features[take]), jnp.asarray(val_mask[take]))
         # Epoch 0, before any step. The front end starts as the identity, so this is
         # also the raw arm's level -- without it a learned-front-end trajectory has
@@ -620,6 +645,8 @@ def train_model(
         Port("ansatz", "str"),
         Port("n_layers", "int"),
         Port("angle_map", "str"),
+        Port("enc_weights", "str"),
+        Port("enc_reupload", "str"),
         Port("whitening", "artifact"),
         Port("whiten", "bool"),
         Port("dla_report", "json"),
@@ -663,6 +690,8 @@ def fit(
     ansatz: str = "XY_Brickwork",
     n_layers: int = 2,
     angle_map: str = "pair_polar",
+    enc_weights: str = "hamming",
+    enc_reupload: str = "diagonal",
     whitening: dict[str, Any] | None = None,
     whiten: bool = False,
     dla_report: dict[str, Any] | None = None,
@@ -688,6 +717,8 @@ def fit(
         n_layers: Data-reuploading depth of the quantum model.
         angle_map: Four-vector-to-angle map of the quantum model; pair ``"legacy"``
             with the ``"legacy"`` encoding.
+        enc_weights: Encoding weight strategy of the quantum model (arm B).
+        enc_reupload: Re-upload mask of the quantum model (arm B).
         whitening: Artifact reference to the fixed whitening rotation fitted by
             :func:`partiqledtr.data.whitening.whitening_rotation`. Always wired in
             the flow; applied only when ``whiten`` is set.
@@ -727,6 +758,8 @@ def fit(
         ansatz=ansatz,
         n_layers=n_layers,
         angle_map=angle_map,
+        enc_weights=enc_weights,
+        enc_reupload=enc_reupload,
         whitening=rotation,
         n_purity_events=n_purity_events,
     )

@@ -1,35 +1,38 @@
-r"""Theory instrumentation for the unflattening connection (ROADMAP phases 3-4).
+r"""Theory instrumentation for the unflattening connection (ROADMAP phases 3-4b).
 
-Two things live here, both recorded/tracked around training rather than trained:
+Three things live here, all recorded or tracked around training rather than trained:
 
-1. **g-purity closed forms** -- the observable of ROADMAP phase 4.  For a
+1. **Product-state g-purity** -- the observable of ROADMAP phase 4.  For a
    floor-free, polynomial-DLA ansatz the unflattening result (Theorem 1) states
    :math:`\mathrm{Var}_W[\langle Z_i \rangle] = P_{\mathfrak g}(\rho) / \dim
    \mathfrak g`, so the g-purity of the *encoded input state* alone decides
-   trainability.  Our edge QFMs encode one feature per qubit through a single
-   ``RY`` (DECISIONS.md D25), i.e. the state is the product state
-   :math:`\bigotimes_k R_y(\theta_k)|0\rangle` for which the g-purity has an
-   O(n) closed form per DLA.  Ported from
-   ``reference/unflattening/unflattening/utils/purity.py``.
+   trainability.  The encoded state is the RY product state
+   :math:`\bigotimes_q R_y(\theta_q)|0\rangle`, on which
+   :math:`\langle X \rangle = \sin\theta`, :math:`\langle Y \rangle = 0` and
+   :math:`\langle Z \rangle = \cos\theta`.  :func:`product_state_purity` sums the
+   squared expectations over the arm's own DLA basis, which reproduces the
+   manuscript's hand-derived closed forms to float32 *and* extends to arms that
+   have none -- the phase-4b ansatz arms (``DECISIONS.md`` D94).
+   :func:`g_purity_offdiag` is kept as the ported closed form of
+   ``reference/unflattening/unflattening/utils/purity.py``: it prices encodings
+   in :func:`encoding_purity` and pins the general form in the tests.
 
-   **Which angles go in (DECISIONS.md D78).**  The closed forms describe the
+   **Which angles go in (DECISIONS.md D78, D96).**  The closed forms describe the
    state *entering the first trainable block*, which is the scope the
    unflattening manuscript claims for them under re-uploading: later encoding
    layers act on parameter-dependent entangled states and are not product
-   states at all.  So the argument is the encoded angle :math:`u` itself, never
-   :math:`L u`.  Everything that reports a closed-form purity -- this module,
-   :meth:`partiqledtr.models.qfm.QFMConstellation.g_purity` and the whitening
-   acceptance test -- therefore uses the same convention, and a purity is a
-   property of the *encoded angle distribution*: data plus encoding, not the
-   trained circuit.
+   states at all.  So the argument is the encoded angle
+   :math:`\theta_q = \sum_f w_{qf} u_f` of a *single* layer, never
+   :math:`L \theta`.  A purity is therefore a property of *data plus encoding*
+   -- weights and re-upload mask included -- not of the trained circuit.
 
 2. **Exact g-purity** -- :func:`g_purity_exact` sums
    :math:`\langle\psi|B|\psi\rangle^2` over the DLA basis of the *actual*
    statevector the circuit prepares, parameters and all.  At ``n_qubits = 4``
-   the basis has 12/28/255 words and the state 16 amplitudes, so it is cheap.
-   It is the honest counterpart of the closed form: the two agree exactly in
-   the clustered limit (where every encoding rotation tends to the identity and
-   :math:`P_{\mathfrak g}` is Ad-invariant under :math:`e^{\mathfrak g}`) and
+   the basis has at most 255 words and the state 16 amplitudes, so it is cheap.
+   It is the honest counterpart of the product-state form: the two agree exactly
+   in the clustered limit (where every encoding rotation tends to the identity
+   and :math:`P_{\mathfrak g}` is Ad-invariant under :math:`e^{\mathfrak g}`) and
    diverge at generic angles, because qml-essentials orders each layer
    *ansatz first, then encoding*.  Reporting both is what lets a claim say
    which object it is about.
@@ -39,30 +42,15 @@ Two things live here, both recorded/tracked around training rather than trained:
    The latter is the floored/floor-free certificate: diagonal words have
    expectation 1 on the clustered-angle limit :math:`\theta \to 0`, so their
    count is the deterministic g-purity floor that makes an arm indifferent to
-   the input distribution.
-
-Ansatz arm -> purity function (see :data:`G_PURITY_BY_ANSATZ`; this mapping *is*
-the experiment):
-
-- ``XY_Brickwork`` -> :func:`g_purity_offdiag`.  DLA
-  :math:`\mathfrak{so}(n) \oplus \mathfrak{so}(n)`, no diagonal word, hence no
-  floor.  The live arm: its purity collapses as :math:`O(\theta^4)` when the
-  encoding angles cluster at zero -- the regime kinematic features land in --
-  and a front end that spreads the angles rescues it.
-- ``Matchgate`` -> :func:`g_purity_full`.  DLA :math:`\mathfrak{so}(2n)`, whose
-  :math:`n` single-qubit :math:`Z_k` give a floor of :math:`n`, so clustered
-  angles *maximise* the purity: the predicted indifference, and the control arm.
-- ``Circuit_19`` -> :func:`g_purity_su`.  DLA is all of
-  :math:`\mathfrak{su}(2^n)`, whose g-purity is :math:`2^n - 1` for *every* pure
-  state -- input-independent, and with :math:`\dim \mathfrak g = 4^n - 1` the
-  variance is the textbook :math:`1/(2^n + 1)` barren plateau, so no front end
-  can help.
+   the input distribution.  The arms and their bond structure are in
+   :mod:`partiqledtr.ansaetze`; what the certificate says about each is the
+   experiment, and it is measured rather than asserted.
 
 The phase-5 spectrum/FCC instrumentation (fourier-fingerprints) is not here yet.
 """
 
 import functools
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from typing import Any
 
 import jax
@@ -70,12 +58,9 @@ import jax.numpy as jnp
 import numpy as np
 from fluksio import Port, node
 from qml_essentials.algebra import g_purity_from_basis, lie_closure_paulis
-from qml_essentials.ansaetze import Ansaetze
 from qml_essentials.operations import PauliWord
 
-#: Ansatz arms of ROADMAP phase 3, in the order they are reported. The single
-#: definition: :mod:`partiqledtr.models.qfm` imports it rather than repeating it.
-ANSAETZE = ("XY_Brickwork", "Matchgate", "Circuit_19")
+from partiqledtr.ansaetze import circuit
 
 _SINGLE_QUBIT_GENERATOR = {"RX": "X", "RY": "Y", "RZ": "Z"}
 _TWO_QUBIT_GENERATOR = {"RXX": "XX", "RYY": "YY", "RZZ": "ZZ"}
@@ -120,67 +105,6 @@ def g_purity_offdiag(theta: jax.Array) -> jax.Array:
     return purity
 
 
-def g_purity_full(theta: jax.Array) -> jax.Array:
-    r"""Return the matchgate (:math:`\mathfrak{so}(2n)`) g-purity of an RY product state.
-
-    The matchgate DLA basis is :math:`\{Z_k\}` plus
-    :math:`\sigma_j (\prod_{j<l<k} Z_l) \sigma'_k` with
-    :math:`\sigma, \sigma' \in \{X, Y\}` (``qml_essentials.algebra.matchgate_basis``).
-    On :math:`\bigotimes_k R_y(\theta_k)|0\rangle` this gives
-
-    .. math::
-        P_{\mathfrak g} = \sum_k \cos^2\theta_k
-            + \sum_{j<k} \sin^2\theta_j \, \sin^2\theta_k
-              \prod_{j<l<k} \cos^2\theta_l ,
-
-    evaluated by the O(n) recurrence of ``g_purity_closed_form`` in
-    ``reference/unflattening/unflattening/utils/purity.py``.  The first sum is
-    the deterministic floor contributed by the :math:`n` diagonal words: it
-    equals :math:`n` exactly in the clustered limit :math:`\theta \to 0`, above
-    the uniform-prior mean :math:`n - 1 + 2^{-n}`.  This is why the ``Matchgate``
-    arm is predicted indifferent to the input distribution.
-
-    Args:
-        theta: Encoding angles of shape ``(..., n)``.
-
-    Returns:
-        The g-purity of shape ``(...)``.
-    """
-    c, s = jnp.cos(theta) ** 2, jnp.sin(theta) ** 2
-    cross = jnp.zeros(theta.shape[:-1])
-    w = jnp.zeros(theta.shape[:-1])  # sum over j < k of s_j prod_{j<l<k} c_l
-    for k in range(theta.shape[-1]):
-        cross = cross + s[..., k] * w
-        w = c[..., k] * w + s[..., k]
-    return c.sum(axis=-1) + cross
-
-
-def g_purity_su(theta: jax.Array) -> jax.Array:
-    r"""Return the :math:`\mathfrak{su}(2^n)` (``Circuit_19``) g-purity, :math:`2^n - 1`.
-
-    Summing :math:`\langle P \rangle^2` over all :math:`4^n - 1` non-identity
-    Pauli words gives :math:`2^n \mathrm{tr}(\rho^2) - 1`, which is
-    :math:`2^n - 1` for any pure state -- the encoding cannot change it.  Held
-    only where :math:`\dim \mathfrak g = 4^n - 1`, which :func:`dla_check`
-    confirms for ``Circuit_19`` at :math:`n = 2, 3, 4`.
-
-    Args:
-        theta: Encoding angles of shape ``(..., n)``; only the shape is used.
-
-    Returns:
-        The constant g-purity, broadcast to shape ``(...)``.
-    """
-    return jnp.full(theta.shape[:-1], 2.0 ** theta.shape[-1] - 1.0)
-
-
-#: Purity observable of ROADMAP phase 4, per ansatz arm (see the module docstring).
-G_PURITY_BY_ANSATZ: dict[str, Callable[[jax.Array], jax.Array]] = {
-    "XY_Brickwork": g_purity_offdiag,
-    "Matchgate": g_purity_full,
-    "Circuit_19": g_purity_su,
-}
-
-
 def offdiag_uniform_mean(n: int) -> float:
     r"""Return :math:`\mathbb E_\Theta[P_{\mathfrak g}]` of :func:`g_purity_offdiag`.
 
@@ -201,6 +125,73 @@ def offdiag_uniform_mean(n: int) -> float:
     return sum((n - d) * 2.0 ** -(d + 1) for d in range(1, n, 2))
 
 
+@functools.cache
+def _yfree_masks(ansatz: str, n_qubits: int) -> tuple[jax.Array, jax.Array]:
+    """Return the ``X`` and ``Z`` placement masks of the Y-free DLA basis words."""
+    words = [word.to_pauli_string() for word in dla_basis(ansatz, n_qubits)]
+    keep = [word for word in words if "Y" not in word]
+    # Shape (0, n) rather than a list comprehension over nothing: an algebra whose
+    # every word carries a Y has purity 0 on an RY product state, not 1.
+    placements = np.zeros((len(keep), n_qubits, 2), dtype=bool)
+    for row, word in enumerate(keep):
+        for column, letter in enumerate(word):
+            placements[row, column] = (letter == "X", letter == "Z")
+    return jnp.asarray(placements[..., 0]), jnp.asarray(placements[..., 1])
+
+
+def product_state_purity(theta: jax.Array, ansatz: str) -> jax.Array:
+    r"""Return the g-purity of an RY product state, for any ansatz arm.
+
+    On :math:`\bigotimes_q R_y(\theta_q)|0\rangle` a Pauli word has
+    :math:`\langle X_q \rangle = \sin\theta_q`, :math:`\langle Y_q \rangle = 0`
+    and :math:`\langle Z_q \rangle = \cos\theta_q`, so only the Y-free basis
+    words survive and
+
+    .. math::
+        P_{\mathfrak g} = \sum_{B \ \mathrm{Y-free}}
+            \prod_{q \in X(B)} \sin^2\theta_q \prod_{q \in Z(B)} \cos^2\theta_q .
+
+    This is the same object the manuscript's closed forms describe -- it agrees
+    with :func:`g_purity_offdiag` to float32 -- but it is read off the arm's own
+    DLA basis instead of a hand-derived series, which is what lets a *new*
+    ansatz be measured at all (``DECISIONS.md`` D94). Cost is
+    ``O(|basis| * n)`` and it is jittable.
+
+    Args:
+        theta: Encoded angles of shape ``(..., n_qubits)``, the argument
+            convention of ``DECISIONS.md`` D78.
+        ansatz: One of :data:`partiqledtr.ansaetze.ANSAETZE`.
+
+    Returns:
+        The g-purity of shape ``(...)``.
+    """
+    xs, zs = _yfree_masks(ansatz, theta.shape[-1])
+    sin2, cos2 = jnp.sin(theta) ** 2, jnp.cos(theta) ** 2
+    term = jnp.where(xs, sin2[..., None, :], 1.0) * jnp.where(zs, cos2[..., None, :], 1.0)
+    return jnp.prod(term, axis=-1).sum(-1)
+
+
+def uniform_prior_mean(ansatz: str, n_qubits: int) -> float:
+    r"""Return :math:`\mathbb E_\Theta[P_{\mathfrak g}]` under the iid uniform prior.
+
+    Every :math:`\sin^2` and :math:`\cos^2` factor averages to :math:`1/2`, so a
+    Y-free basis word acting non-trivially on :math:`m` qubits contributes
+    :math:`2^{-m}`. The generalisation of :func:`offdiag_uniform_mean` to an
+    arbitrary arm, and the reference scale every purity is read against: the
+    whitening acceptance test of the unflattening manuscript accepts a rotation
+    at half this value.
+
+    Args:
+        ansatz: One of :data:`partiqledtr.ansaetze.ANSAETZE`.
+        n_qubits: Number of qubits.
+
+    Returns:
+        The prior mean.
+    """
+    xs, zs = _yfree_masks(ansatz, n_qubits)
+    return float(jnp.sum(0.5 ** jnp.sum(xs | zs, axis=-1)))
+
+
 # --- exact g-purity ---------------------------------------------------------
 
 
@@ -209,7 +200,7 @@ def dla_basis(ansatz: str, n_qubits: int) -> tuple[PauliWord, ...]:
     """Return the DLA basis of an ansatz arm, cached across calls.
 
     Args:
-        ansatz: One of :data:`ANSAETZE`.
+        ansatz: One of :data:`partiqledtr.ansaetze.ANSAETZE`.
         n_qubits: Number of qubits, at least 2.
 
     Returns:
@@ -330,48 +321,71 @@ _PURITY_ARMS = {
 
 
 def encoding_purity(
-    split: dict[str, np.ndarray], *, n_pairs: int = 4096, seed: int = 0
-) -> dict[str, dict[str, float]]:
-    """Compare what each feature encoding does to the g-purity of the encoded state.
+    split: dict[str, np.ndarray],
+    *,
+    ansatz: str = "XY_Ring",
+    n_pairs: int = 4096,
+    seed: int = 0,
+) -> dict[str, dict[str, dict[str, float]]]:
+    """Price every feature encoding, crossed with every encoding-weight arm.
 
     This is the measurement behind the project's clearest empirical claim, and the
     reason it lives here rather than in a notebook: the encoding a decay-tree model
     picks decides whether its inputs land in the barren regime at all, and the
     unflattening theory prices that decision in a currency both papers share
-    (``DECISIONS.md`` D88).
+    (``DECISIONS.md`` D88).  Crossing it with the weight arms answers ROADMAP phase
+    4b arm B's central question *without training anything* -- spectral
+    preconditioning is a property of data plus encoding, so if an exponential
+    spectrum lifts a collapsed encoding off the floor, it shows up here (D97).
 
-    Three arms, all read off the same events:
+    Three feature arms, all read off the same events:
 
     * ``pair_polar`` -- the quantum arm's map, polar angles of ``(px, py)`` and
       ``(pz, E)``;
     * ``direct`` -- the ``(theta, phi)`` direction angles of the ``"angles"``
       encoding, used as-is;
-    * ``legacy`` -- partiqlegan's ``p * E * pi`` product, the clustered arm (D80).
+    * ``legacy`` -- partiqlegan's ``p * E * pi`` product, the clustered arm (D80),
+      and the one where the manuscript's jitter amplification has room to act.
+
+    crossed with the six ``weights-reupload`` cells of
+    :func:`partiqledtr.models.qfm.encoding_matrix`.
 
     Args:
         split: A loaded dataset split; needs the feature array of every arm plus
             ``n_fsps``.
+        ansatz: Ansatz arm whose DLA basis the purity is summed over. Defaults to
+            the live floor-free arm, on which the input distribution decides.
         n_pairs: Edges sampled per arm.
-        seed: Seed of the edge sampling; the same edges are used for every arm, so
-            the arms differ only by their encoding.
+        seed: Seed of the edge sampling; the same edges are used for every cell, so
+            the cells differ only by their encoding.
 
     Returns:
-        Per arm: ``mean_purity``, ``below_threshold`` (fraction of edges under
-        ``mu_n / 2``), ``threshold`` and ``uniform_mean``.
+        ``report[feature_arm][weight_cell]`` with ``mean_purity``,
+        ``below_threshold`` (fraction of edges under ``mu_n / 2``), ``threshold``
+        and ``uniform_mean``, plus a top-level ``"ansatz"`` and ``"n_pairs"``.
 
     Raises:
         ValueError: If ``split`` is missing an arm's feature array.
     """
+    import itertools
+
     from partiqledtr.data.whitening import _sample_pairs
-    from partiqledtr.models.qfm import ANGLE_MAPS, N_QUBITS
+    from partiqledtr.models.qfm import (
+        ANGLE_MAPS,
+        ENC_REUPLOAD,
+        ENC_WEIGHTS,
+        N_QUBITS,
+        encoding_matrix,
+    )
 
     n_fsps = np.asarray(split["n_fsps"])
-    # One edge sample shared by every arm: the arms must differ by their encoding
+    # One edge sample shared by every cell: the cells must differ by their encoding
     # and by nothing else.
     events, pairs = _sample_pairs(np.random.default_rng(seed), n_fsps, n_pairs)
-    threshold = offdiag_uniform_mean(N_QUBITS) / 2.0
+    uniform_mean = uniform_prior_mean(ansatz, N_QUBITS)
+    threshold = uniform_mean / 2.0
 
-    report: dict[str, dict[str, float]] = {}
+    report: dict[str, Any] = {"ansatz": ansatz, "n_pairs": n_pairs}
     for arm, (key, angle_map) in _PURITY_ARMS.items():
         if key not in split:
             raise ValueError(
@@ -380,13 +394,18 @@ def encoding_purity(
         features = jnp.asarray(np.asarray(split[key])[events])
         angles = features[..., :2] if angle_map is None else ANGLE_MAPS[angle_map](features)
         taken = jnp.take_along_axis(angles, jnp.asarray(pairs)[:, :, None], axis=1)
-        purity = np.asarray(g_purity_offdiag(taken.reshape(n_pairs, N_QUBITS)))
-        report[arm] = {
-            "mean_purity": float(purity.mean()),
-            "below_threshold": float((purity < threshold).mean()),
-            "threshold": threshold,
-            "uniform_mean": offdiag_uniform_mean(N_QUBITS),
-        }
+        edge = taken.reshape(n_pairs, N_QUBITS)
+        cells: dict[str, dict[str, float]] = {}
+        for weights, reupload in itertools.product(ENC_WEIGHTS, ENC_REUPLOAD):
+            matrix = jnp.asarray(encoding_matrix(weights, reupload, N_QUBITS))
+            purity = np.asarray(product_state_purity(edge @ matrix.T, ansatz))
+            cells[f"{weights}-{reupload}"] = {
+                "mean_purity": float(purity.mean()),
+                "below_threshold": float((purity < threshold).mean()),
+                "threshold": threshold,
+                "uniform_mean": uniform_mean,
+            }
+        report[arm] = cells
     return report
 
 
@@ -397,12 +416,17 @@ def encoding_purity(
     provides=[Port("encoding_report", "json")],
 )
 def encoding_report(
-    *, dataset_train: dict[str, Any], n_pairs: int = 4096, encoding_seed: int = 0
+    *,
+    dataset_train: dict[str, Any],
+    purity_ansatz: str = "XY_Ring",
+    n_pairs: int = 4096,
+    encoding_seed: int = 0,
 ) -> dict[str, Any]:
     """Record the encoding comparison of :func:`encoding_purity` for a dataset.
 
     Args:
         dataset_train: Training split artifact reference.
+        purity_ansatz: Ansatz arm whose DLA basis the purity is summed over.
         n_pairs: Edges sampled per arm.
         encoding_seed: Seed of the edge sampling.
 
@@ -413,7 +437,10 @@ def encoding_report(
 
     return {
         "encoding_report": encoding_purity(
-            load_split(dataset_train), n_pairs=n_pairs, seed=encoding_seed
+            load_split(dataset_train),
+            ansatz=purity_ansatz,
+            n_pairs=n_pairs,
+            seed=encoding_seed,
         )
     }
 
@@ -451,24 +478,23 @@ def ansatz_generators(ansatz: str, n_qubits: int) -> list[str]:
     already generated by the ``RX`` block.
 
     Args:
-        ansatz: One of :data:`ANSAETZE`.
+        ansatz: One of :data:`partiqledtr.ansaetze.ANSAETZE`.
         n_qubits: Number of qubits, at least 2.
 
     Returns:
         The deduplicated generator Pauli strings (qubit 0 leftmost).
 
     Raises:
-        ValueError: If ``ansatz`` is unknown or ``n_qubits < 2``.
+        ValueError: If ``ansatz`` names no arm and no qml-essentials ansatz, or
+            ``n_qubits < 2``.
         NotImplementedError: If the ansatz contains a rotation gate whose
             generator is not covered here.
     """
-    if ansatz not in ANSAETZE:
-        raise ValueError(f"unknown ansatz {ansatz!r}, expected one of {ANSAETZE}")
     if n_qubits < 2:
         raise ValueError(f"n_qubits must be at least 2, got {n_qubits}")
 
     words: list[str] = []
-    for block in getattr(Ansaetze, ansatz).structure():
+    for block in circuit(ansatz).structure():
         gate = block.gate.__name__
         if gate in _SINGLE_QUBIT_GENERATOR:
             pauli = _SINGLE_QUBIT_GENERATOR[gate]
@@ -507,7 +533,7 @@ def dla_check(
         Circuit_19        255     255  1.0000            15   464 ms
 
     Args:
-        ansatz: One of :data:`ANSAETZE`.
+        ansatz: One of :data:`partiqledtr.ansaetze.ANSAETZE`.
         n_qubits: Number of qubits, at least 2.
         max_dim: Cap on the number of basis words, so a runaway closure stops
             instead of hanging.
@@ -557,7 +583,7 @@ def dla_report(*, ansatz: str = "XY_Brickwork", n_qubits: int = 4, max_dim: int 
     of the flow rather than of anyone's discipline.
 
     Args:
-        ansatz: Ansatz arm, one of :data:`ANSAETZE`.
+        ansatz: Ansatz arm, one of :data:`partiqledtr.ansaetze.ANSAETZE`.
         n_qubits: Qubits per edge QFM.
         max_dim: Cap on the Lie closure (``DECISIONS.md`` D54).
 
@@ -565,3 +591,130 @@ def dla_report(*, ansatz: str = "XY_Brickwork", n_qubits: int = 4, max_dim: int 
         The certificate of :func:`dla_check`, under the ``dla_report`` port.
     """
     return {"dla_report": dla_check(ansatz=ansatz, n_qubits=n_qubits, max_dim=max_dim)}
+
+
+# --- arm characterisation (phase 4b) ----------------------------------------
+
+
+@node(
+    # Circuit_19's Lie closure dominates and is silent throughout (D89).
+    timeout=1800,
+    requires=[Port("n_qubits", "int")],
+    provides=[Port("arm_report", "json")],
+)
+def arm_report(*, n_qubits: int = 4, max_dim: int = 2000) -> dict[str, Any]:
+    """Record every ansatz arm's certificate, prior scale and partition symmetry.
+
+    The phase-4b arm C table, as a run rather than as a number someone typed into
+    a document: the DLA dimension and floor count that decide whether an arm is
+    input-distribution sensitive, the uniform-prior mean its purities have to be
+    read against, and whether its bond set survives the endpoint swap
+    (``DECISIONS.md`` D98, D102).
+
+    Args:
+        n_qubits: Qubits per edge QFM.
+        max_dim: Cap on each Lie closure (``DECISIONS.md`` D54).
+
+    Returns:
+        One record per arm under the ``arm_report`` port, plus its bonds.
+    """
+    from partiqledtr.ansaetze import ANSAETZE, bonds, swap_invariant
+
+    return {
+        "arm_report": {
+            arm: {
+                **dla_check(arm, n_qubits=n_qubits, max_dim=max_dim),
+                "uniform_mean": uniform_prior_mean(arm, n_qubits),
+                "swap_invariant": swap_invariant(arm, n_qubits),
+                "bonds": sorted(sorted(bond) for bond in bonds(arm, n_qubits)),
+            }
+            for arm in ANSAETZE
+        }
+    }
+
+
+@node(
+    timeout=1800,
+    requires=[Port("n_qubits", "int"), Port("purity_ansatz", "str")],
+    provides=[Port("encoding_cells", "json")],
+)
+def encoding_cells(
+    *,
+    n_qubits: int = 4,
+    purity_ansatz: str = "XY_Ring",
+    n_layers: int = 2,
+    n_samples: int = 200_000,
+    clustered_sigmas: tuple[float, ...] = (0.30, 0.03),
+    cells_seed: int = 0,
+) -> dict[str, Any]:
+    """Characterise every encoding-weight cell, and price it on synthetic angle laws.
+
+    Two things per cell of ROADMAP phase 4b arm B, neither of which needs a
+    dataset: what the cell *is* -- its weight matrix, per-feature spectrum,
+    dissociation and endpoint symmetry -- and what it *does* to the g-purity of a
+    uniform and of a clustered angle law.
+
+    The synthetic prices are the arm's prediction, recorded before the real
+    encodings are read so the measured table confirms rather than discovers
+    (``DECISIONS.md`` D102). ``encoding_purity`` is the same question on real
+    kinematics.
+
+    Args:
+        n_qubits: Qubits per edge QFM.
+        purity_ansatz: Arm whose DLA basis the purities are summed over.
+        n_layers: Data-reuploading depth the spectrum is computed at.
+        n_samples: Angle draws per law.
+        clustered_sigmas: Standard deviations of the clustered laws, in radians.
+        cells_seed: Seed of the angle draws.
+
+    Returns:
+        Per cell: ``weights`` (the matrix), ``n_freqs``, ``dissociated``,
+        ``swap_invariant`` and a ``purity`` map over the angle laws.
+    """
+    import itertools
+
+    from partiqledtr.models.qfm import (
+        ENC_REUPLOAD,
+        ENC_WEIGHTS,
+        encoding_matrix,
+        encoding_spectrum,
+    )
+
+    rng = np.random.default_rng(cells_seed)
+    laws = {"uniform": rng.uniform(0.0, 2.0 * np.pi, (n_samples, n_qubits))}
+    laws |= {f"clustered_{s}": rng.normal(0.0, s, (n_samples, n_qubits)) for s in clustered_sigmas}
+    # Every eps in {-1,0,1}^n except zero: dissociation is checked by exhaustion
+    # rather than cited, which is cheap at this size and is the whole premise.
+    signs = np.array(list(itertools.product((-1, 0, 1), repeat=n_qubits)))
+    signs = signs[np.any(signs != 0, axis=1)]
+    half = n_qubits // 2
+    order = [(q + half) % n_qubits for q in range(n_qubits)]
+    threshold = uniform_prior_mean(purity_ansatz, n_qubits) / 2.0
+
+    report: dict[str, Any] = {
+        "ansatz": purity_ansatz,
+        "n_layers": n_layers,
+        "n_samples": n_samples,
+        "threshold": threshold,
+    }
+    for weights, reupload in itertools.product(ENC_WEIGHTS, ENC_REUPLOAD):
+        matrix = encoding_matrix(weights, reupload, n_qubits)
+        purity = {}
+        for name, angles in laws.items():
+            values = np.asarray(
+                product_state_purity(jnp.asarray(angles) @ jnp.asarray(matrix).T, purity_ansatz)
+            )
+            purity[name] = {
+                "mean_purity": float(values.mean()),
+                "below_threshold": float((values < threshold).mean()),
+            }
+        report[f"{weights}-{reupload}"] = {
+            "weights": matrix.astype(int).tolist(),
+            "n_freqs": [
+                int(encoding_spectrum(matrix, f, n_layers).size) for f in range(n_qubits)
+            ],
+            "dissociated": bool(np.all(np.any(signs @ matrix != 0, axis=1))),
+            "swap_invariant": bool(np.array_equal(matrix[order][:, order], matrix)),
+            "purity": purity,
+        }
+    return {"encoding_cells": report}

@@ -1,9 +1,17 @@
 """Fluksio flow declarations.
 
-Two flows rather than one. Fluksio caches node results on their inputs, so a merged
+Three flows rather than one. Fluksio caches node results on their inputs, so a merged
 flow would skip regeneration anyway, but the split still earns its place: generation
 and training have different parameter axes, generation is expensive and offline, and
 one dataset feeds many training runs.
+
+``characterize`` is the third, and it consumes no data at all. Everything phase 4b
+records *about* its arms rather than *from* them -- each ansatz's DLA certificate,
+floor count, prior scale and endpoint symmetry; each encoding cell's weight matrix,
+spectrum, dissociation and synthetic purity; the sampler's distinct-shape ceiling --
+belongs to a run with a commit stamp, not to a number pasted into a document
+(``DECISIONS.md`` D102). It is cheap and deterministic, so re-running it after any
+change to an arm is close to free.
 
     fluksio serve                                     # the engine, once
     fluksio sync partiqledtr                          # upload the flows
@@ -12,8 +20,9 @@ one dataset feeds many training runs.
         --dataset_test <ref> --dataset_meta <ref> --model gnn --epochs 100
 
 ``generate`` also runs ``encoding_report``, which prices each candidate encoding in
-g-purity (D88): whether a decay-tree model's inputs land in the barren regime at all
-is decided there, before any model exists, and the table is a result in its own right.
+g-purity (D88), crossed with every encoding-weight arm of phase 4b (D97): whether a
+decay-tree model's inputs land in the barren regime at all is decided there, before
+any model exists, and the table is a result in its own right.
 
 The ``train`` flow also carries the phase-3/4 instrumentation. ``dla_report`` runs
 upstream of ``fit`` and its certificate is a *required* input there, so the arm's
@@ -24,9 +33,9 @@ acceptance report for *every* run; the model applies it only when ``whiten`` is 
 independently of ``frontend`` -- ``frontend=mlp`` with ``whiten=true`` is a reachable
 (and deliberately runnable) cell.
 
-The nine-cell phase-4 study is nine runs of this one flow:
+An ablation cell is one run of this one flow:
 
-    for arm in XY_Brickwork Matchgate Circuit_19; do
+    for arm in XY_Brickwork XY_Ring XY_AllPairs Circuit_19; do
       for fe in raw whiten mlp; do
         fluksio run train --model qfm --encoding cartesian --ansatz $arm ...
       done
@@ -36,6 +45,9 @@ The clustered control arm is the same flow with ``--encoding legacy --angle_map
 legacy``: partiqlegan's ``p * E * pi`` product, whose encoding angles collapse toward
 zero, which is where the unflattening rescue prediction is falsifiable (D80).
 
+Phase 4b adds three axes to the same flow and nothing else: ``n_layers`` (arm A),
+``enc_weights`` x ``enc_reupload`` (arm B) and the new ``ansatz`` arms (arm C).
+
 Declarations only: the nodes live in :mod:`partiqledtr.data.dataset`,
 :mod:`partiqledtr.data.whitening`, :mod:`partiqledtr.analysis` and
 :mod:`partiqledtr.train`, and are wired by matching provides/requires names.
@@ -43,8 +55,8 @@ Declarations only: the nodes live in :mod:`partiqledtr.data.dataset`,
 
 from fluksio import Flow, Port
 
-from partiqledtr.analysis import dla_report, encoding_report
-from partiqledtr.data.dataset import build_dataset, dataset_stats
+from partiqledtr.analysis import arm_report, dla_report, encoding_cells, encoding_report
+from partiqledtr.data.dataset import build_dataset, dataset_stats, shape_ceiling
 from partiqledtr.data.whitening import whitening_rotation
 from partiqledtr.train import evaluate, fit
 
@@ -60,6 +72,7 @@ generate = Flow(
         Port("n_events_per_topology", "int", initial=1000),
         Port("min_fsps", "int", initial=3),
         Port("max_fsps", "int", initial=8),
+        Port("max_depth", "int", initial=4),
     ],
     outputs=[
         "dataset_train",
@@ -69,6 +82,19 @@ generate = Flow(
         "stats",
         "encoding_report",
     ],
+)
+
+characterize = Flow(
+    "characterize",
+    title="Characterise the phase-4b arms, before any data",
+    nodes=[arm_report, encoding_cells, shape_ceiling],
+    inputs=[
+        Port("n_qubits", "int", initial=4),
+        Port("purity_ansatz", "str", initial="XY_Ring"),
+        Port("min_fsps", "int", initial=3),
+        Port("max_fsps", "int", initial=8),
+    ],
+    outputs=["arm_report", "encoding_cells", "shape_ceiling"],
 )
 
 train = Flow(
@@ -92,6 +118,8 @@ train = Flow(
         Port("ansatz", "str", initial="XY_Brickwork"),
         Port("n_layers", "int", initial=2),
         Port("angle_map", "str", initial="pair_polar"),
+        Port("enc_weights", "str", initial="hamming"),
+        Port("enc_reupload", "str", initial="diagonal"),
         Port("whiten", "bool", initial=False),
         Port("whitening_seed", "int", initial=0),
     ],

@@ -69,6 +69,8 @@ def assemble_dataset(
     n_groups: int = 3,
     probe_events: int = 32,
     probe_draws: int = 2_000_000,
+    max_draws: int = 40_000_000,
+    probe_margin: float = 2.0,
 ) -> tuple[dict[str, dict[str, np.ndarray]], dict[str, Any]]:
     """Sample topologies, generate events and assemble the three dataset splits.
 
@@ -88,9 +90,14 @@ def assemble_dataset(
         test_frac: Fraction of a group-A topology's events used for testing.
         isp_weight: Relative weight of the intermediate-state mass pool.
         n_groups: Number of topology groups; 3 gives the known/unknown scheme.
-        probe_events: Events a candidate topology must produce within
-            ``probe_draws`` to be kept (``DECISIONS.md`` D90).
-        probe_draws: Draw budget of that probe. Scaled so the probe costs a small
+        probe_events: Events a candidate topology must produce within the probe
+            budget to be kept (``DECISIONS.md`` D90).
+        max_draws: Draw budget of the *real* per-topology generation.
+        probe_margin: How much stricter the probe is than the real generation, in
+            acceptance rate (``DECISIONS.md`` D101). At 1 the probe demands exactly
+            the rate the run needs, which sampling noise at ``probe_events`` events
+            is enough to get wrong; 2 puts the boundary about four sigma clear.
+        probe_draws: Upper cap on the probe budget. Scaled so the probe costs a small
             fraction of the real generation while still resolving the acceptance
             rates that matter.
 
@@ -116,7 +123,18 @@ def assemble_dataset(
     if not 1 <= n_groups <= len(_GROUP_SPLITS):
         raise ValueError(f"n_groups must be between 1 and {len(_GROUP_SPLITS)}, got {n_groups}")
 
+    if probe_margin < 1.0:
+        raise ValueError(f"probe_margin must be at least 1, got {probe_margin}")
+
     rng = np.random.default_rng(seed)
+    # The probe is only meaningful if it demands at least the acceptance rate the
+    # real generation needs. A fixed budget does not: at 32 events in 2e6 draws it
+    # passes anything above 1.6e-5, while 1000 events in 4e7 draws needs 2.5e-5, so
+    # a topology in between passes and then kills the run ten minutes later -- which
+    # it did (``DECISIONS.md`` D101). Proportional, times the margin.
+    budget = min(
+        probe_draws, int(max_draws * probe_events / (probe_margin * n_events_per_topology))
+    )
 
     def viable(topology: dict) -> bool:
         """Whether a topology can be sampled inside the per-topology draw budget.
@@ -127,7 +145,7 @@ def assemble_dataset(
         keeps the rejection inside the sampler, where shape uniqueness is tracked.
         """
         try:
-            generate_events(topology, probe_events, seed, max_draws=probe_draws)
+            generate_events(topology, probe_events, seed, max_draws=budget)
         except UngeneratableTopologyError:
             return False
         return True
@@ -151,7 +169,9 @@ def assemble_dataset(
     for group, topologies in enumerate(groups):
         for topology in topologies:
             lcag, names = topology_to_lcag(topology)
-            events = generate_events(topology, n_events_per_topology, int(rng.integers(2**31)))
+            events = generate_events(
+                topology, n_events_per_topology, int(rng.integers(2**31)), max_draws=max_draws
+            )
             p4 = np.stack([events[name] for name in names], axis=1)
 
             # One permutation per event, applied to the rows of both encodings and
@@ -253,6 +273,7 @@ def load_split(ref: dict[str, Any]) -> dict[str, np.ndarray]:
         Port("n_events_per_topology", "int"),
         Port("min_fsps", "int"),
         Port("max_fsps", "int"),
+        Port("max_depth", "int"),
     ],
     provides=[
         Port("dataset_train", "artifact"),
@@ -436,3 +457,61 @@ def dataset_stats(
         for name, payload in figures.items()
     ]
     return {"stats": stats, "figures": refs}
+
+
+@node(
+    # Sampling is cheap but the failure path draws 100 candidates per leaf count.
+    timeout=1800,
+    requires=[Port("min_fsps", "int"), Port("max_fsps", "int")],
+    provides=[Port("shape_ceiling", "json")],
+)
+def shape_ceiling(
+    *,
+    min_fsps: int = 3,
+    max_fsps: int = 8,
+    depths: tuple[int, ...] = (4, 5),
+    per_group: tuple[int, ...] = (10, 20, 34),
+    n_groups: int = 3,
+    ceiling_seed: int = 0,
+) -> dict[str, Any]:
+    """Record how many distinct tree shapes the sampler can actually supply.
+
+    The known/unknown probe can only be as good as the number of *distinct*
+    unlabelled shapes a depth admits, and ``RESEARCH.md`` §6 flagged that ceiling
+    without locating it. This asks the sampler for a given count per group and
+    records where it runs out, which turns the caveat into a number
+    (``DECISIONS.md`` D102). No phase-space generation: shapes only.
+
+    Args:
+        min_fsps: Smallest final-state particle count.
+        max_fsps: Largest final-state particle count.
+        depths: Maximum topology depths to probe.
+        per_group: Distinct shapes requested per group.
+        n_groups: Number of known/unknown groups.
+        ceiling_seed: Seed of the sampling.
+
+    Returns:
+        Per ``depth/per_group`` cell, the number of distinct shapes obtained, or
+        the count at which the sampler ran out.
+    """
+    report: dict[str, Any] = {"min_fsps": min_fsps, "max_fsps": max_fsps, "n_groups": n_groups}
+    for depth in depths:
+        for count in per_group:
+            key = f"depth{depth}/per_group{count}"
+            try:
+                groups = sample_topologies(
+                    np.random.default_rng(ceiling_seed),
+                    n_groups=n_groups,
+                    per_group=count,
+                    min_fsps=min_fsps,
+                    max_fsps=max_fsps,
+                    max_depth=depth,
+                )
+            except ValueError as exhausted:
+                report[key] = {"ok": False, "detail": str(exhausted)}
+                continue
+            report[key] = {
+                "ok": True,
+                "n_shapes": len({shape_form(t) for group in groups for t in group}),
+            }
+    return {"shape_ceiling": report}
