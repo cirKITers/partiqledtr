@@ -80,6 +80,38 @@ def cells_opt() -> list[dict[str, Any]]:
     ]
 
 
+def cells_full() -> list[dict[str, Any]]:
+    """The full phase-4c grid, at the widened dose and the §14 optimizer pick.
+
+    ``lr_qfm = 1e-2`` throughout (the circuit must track the latent distribution
+    the preconditioner moves; RESEARCH §14), everything else at the shared 1e-3.
+    Arms: both floor-free ansaetze x {none, mlp} x {clustered legacy, pair_polar},
+    plus the floored ``XY_AllPairs`` specificity control, where the purity-loss
+    correlation must be absent.
+    """
+    pick = {"model": "qfm", "n_channels": 4, "lr_qfm": 1e-2}
+    grid = [
+        {
+            **pick,
+            "ansatz": ansatz,
+            "preconditioner": pre,
+            "encoding": enc,
+            "angle_map": "legacy" if enc == "legacy" else "pair_polar",
+        }
+        for ansatz in ("XY_Ring", "XY_Brickwork")
+        for pre in ("none", "mlp")
+        for enc in ("legacy", "cartesian")
+    ]
+    control = {
+        **pick,
+        "ansatz": "XY_AllPairs",
+        "preconditioner": "mlp",
+        "encoding": "legacy",
+        "angle_map": "legacy",
+    }
+    return [*grid, control]
+
+
 def load(name: str) -> dict[str, Any]:
     """Read one exported dataset split."""
     import numpy as np
@@ -257,6 +289,7 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=OUT)
     parser.add_argument("--channels", type=int, default=1, help="D108 widening dose")
     parser.add_argument("--opt", action="store_true", help="run the D109 optimizer block")
+    parser.add_argument("--full", action="store_true", help="run the full phase-4c grid (§14 pick)")
     parser.add_argument("--report", action="store_true")
     args = parser.parse_args()
 
@@ -266,8 +299,12 @@ def main() -> None:
     if args.report:
         report(args.out)
         return
-    block = cells_opt() if args.opt else cells(args.channels)
-    filename = "opt.json" if args.opt else "smoke.json"
+    if args.full:
+        block, filename = cells_full(), "full.json"
+    elif args.opt:
+        block, filename = cells_opt(), "opt.json"
+    else:
+        block, filename = cells(args.channels), "smoke.json"
     run(block, filename, seeds=args.seeds, jobs=args.jobs, epochs=args.epochs, out=args.out)
     report(args.out)
 

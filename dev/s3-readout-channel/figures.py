@@ -35,7 +35,7 @@ def main() -> None:
 
     def cell_key(record):
         cell = record["cell"]
-        return f"K={cell.get('n_channels', 1)} {cell['preconditioner']}"
+        return " ".join(f"{k}={v}" for k, v in sorted(cell.items()) if k != "seed")
 
     cells = sorted({cell_key(r) for r in records})
     FIGURES.mkdir(exist_ok=True)
