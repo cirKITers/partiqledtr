@@ -893,6 +893,46 @@ Decision input for the full 4c experiment: run it widened (`n_channels = 4`),
 with {`none`, `mlp`} kept as an axis -- the preconditioner question is now about
 Perfect-LCAG and the split optimiser, not about whether the model can learn.
 
+## 14. Optimizer smoke: the preconditioner's accuracy cost was the *circuit's* learning rate
+
+The D109 split-rate cells, all at K=4 on the §13 configuration, 3 seeds against
+the 5-seed shared-rate baselines:
+
+| cell (K=4, XY_Ring, legacy) | acc known | perfect | purity/mu_n | r(dP, dL) Pearson |
+| --- | --- | --- | --- | --- |
+| `none`, shared 1e-3 | 0.498 +- 0.004 | 0.093 | 0.19 -> 0.19 | -- |
+| `mlp`, shared 1e-3 | 0.475 +- 0.008 | 0.104 | 0.19 -> 1.14 | -0.41 (4/5 neg) |
+| `mlp`, `lr_pre` 1e-4 | 0.476 +- 0.011 | 0.097 | 0.19 -> 0.37 | **-0.90 +- 0.08 (3/3)** |
+| `mlp`, `lr_pre` 1e-2 | 0.483 +- 0.011 | 0.093 | 0.19 -> 1.21 | +0.15 (decoupled) |
+| `mlp`, `lr_qfm` 1e-2 | **0.497 +- 0.002** | **0.111 +- 0.004** | 0.19 -> 1.19 | -0.39 (3/3 neg) |
+| `none`, `lr_qfm` 1e-2 | 0.490 +- 0.004 | 0.097 | 0.19 -> 0.19 | -- |
+
+- **The diagnosis.** Moving the MLP's own rate in either direction does not
+  recover the accuracy (0.476 / 0.483); raising the *circuit's* rate to 1e-2
+  recovers it exactly (0.497 vs the raw arm's 0.498) -- and does so only in
+  combination with the preconditioner, since the raw arm slightly *loses* under
+  the same faster circuit (0.490). Reading: the preconditioner makes the encoded
+  distribution non-stationary under the circuit's feet, and at the shared 1e-3
+  the circuit cannot track it. The penalty was an optimization artifact, not a
+  property of the learned distribution. (Adam could not fix this on its own: it
+  equalises per-parameter step sizes, which is precisely what forces both groups
+  to the same speed -- D109.)
+- **With the confound removed, preconditioning pays on both metrics**: at
+  `lr_qfm` 1e-2, mlp vs none is +0.007 accuracy and +0.014 Perfect-LCAG (0.111,
+  the best of any cell measured in this project). Consistent with the working
+  hypothesis that optimization is orthogonal to the unflattening mechanism.
+- **The mechanism dose-responds as predicted.** The slow-MLP cell moves purity
+  to only 0.37 `mu_n` and shows the *strongest* purity-loss coupling measured
+  yet (-0.90 +- 0.08): stretched over more epochs, the same rescue is easier to
+  resolve. The fast-MLP cell overshoots in the first epochs and the correlation
+  vanishes (+0.15) -- the movement completes before the loss can respond, so the
+  coupling is invisible at epoch resolution, and its accuracy stays down
+  (0.483). Rate ordering, not just rate splitting, matters.
+
+**Decision for the full experiment: `lr_qfm = 1e-2`, everything else at 1e-3.**
+Best mlp accuracy and Perfect-LCAG, correlation still measurable, and the
+preconditioner comparison no longer confounded by the circuit's tracking speed.
+
 ## Open questions this raises
 
 1. Does the §1 result survive at full dataset scale? It is the load-bearing

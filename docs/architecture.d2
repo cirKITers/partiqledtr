@@ -1,46 +1,68 @@
-# The quantum model, end to end. Orange is a switch: a `train` flow input picks
-# one of its values. Edge labels are array shapes -- B events, L padded particles,
-# C LCAG classes, nb the ansatz's coupling-bond count (3/4/6/4 for
-# XY_Brickwork/XY_Ring/XY_AllPairs/Circuit_19, D107), K = `n_channels` parallel
-# QFMs per block (default 1, D108). The classical `gnn` and `mlp` arms are
+# The quantum model as a network diagram, top to bottom. Blue is quantum, orange
+# is optional, grey is classical (parameter-free or linear). Edge labels are
+# array shapes -- B events, L padded particles, C LCAG classes, nb the ansatz's
+# coupling-bond count (3/4/6/4 for XY_Brickwork/XY_Ring/XY_AllPairs/Circuit_19,
+# D107). Each QFM block is K = `n_channels` parallel, independently initialised
+# QFMs (default 1, D108), drawn as an explicit fan-out; the faint middle channel
+# stands for the K - 2 not drawn. The classical `gnn` and `mlp` arms are
 # deliberately not drawn.
 #
 #   d2 docs/architecture.d2 docs/architecture.svg
 
-vars: { d2-config: { layout-engine: elk; pad: 20 } }
+vars: { d2-config: { layout-engine: dagre; pad: 20 } }
+direction: down
 
 classes: {
-  switch: { style: { stroke: "#eb6834"; stroke-width: 2; fill: "#fdf1ea"; font-size: 14 } }
-  quantum: { style: { stroke: "#2a78d6"; stroke-width: 2; fill: "#eaf2fc"; font-size: 14 } }
-  local: { style: { stroke: "#8fb8e8"; fill: "#f7fbff"; font-size: 14 } }
-  plain: { style: { stroke: "#8d8b86"; fill: "#fcfcfb"; font-size: 14 } }
+  io: { style: { stroke: "#8d8b86"; fill: "#efefec"; font-size: 14; border-radius: 16 } }
+  op: { style: { stroke: "#8d8b86"; fill: "#fcfcfb"; font-size: 14; border-radius: 4 } }
+  opt: { style: { stroke: "#eb6834"; stroke-width: 2; fill: "#fdf1ea"; font-size: 14; border-radius: 4 } }
+  quantum: { style: { stroke: "#2a78d6"; stroke-width: 2; fill: "#eaf2fc"; font-size: 14; border-radius: 4 } }
+  ghost: { style: { stroke: "#2a78d6"; stroke-dash: 3; fill: "#f7fbff"; font-size: 18; opacity: 0.6 } }
+  faint: { style: { stroke: "#2a78d6"; stroke-dash: 3; opacity: 0.4 } }
 }
 
-model: "" {
-  grid-columns: 5
-  grid-gap: 70
-  style: { stroke: transparent; fill: transparent }
+x: "four-vectors" { class: io }
+wh: "whitening\nfixed rotation, optional" { class: opt }
+am: "angle map\n(px, py) -> phi   (pz, E) -> alpha" { class: op }
+pre: "preconditioner\nelementwise residual MLP, optional" { class: opt }
+pair: "edge pairing\n[a_i ; a_j] for every pair (i, j)" { class: op }
 
-  p4: "four-vectors\n`encoding` cartesian · legacy" { class: plain }
-  wh: "whiten\nfixed 4x4 rotation" { class: switch }
-  am: "`angle_map`\npair_polar · legacy" { class: switch }
-  pre: "`preconditioner`\nnone · mlp, elementwise" { class: switch }
-  e1: "QFM 1 · K channels\n4 qubits, shared over every edge\n<XX+YY> per bond, in-algebra" { class: quantum }
+q1a: "QFM 1, ch 1\n4 qubits\n<XX+YY> / bond" { class: quantum }
+q1d: "..." { class: ghost }
+q1k: "QFM 1, ch K\nindependent\nparameters" { class: quantum }
+cat1: "concat" { class: op }
+agg: "masked mean\nover neighbours" { class: op }
+wn: "linear\n[a ; m] -> K angle pairs" { class: op }
 
-  agg: "masked mean\nparameter-free" { class: local }
-  wn: "`w_node`\nlinear on [a ; m]\nK angle pairs out" { class: local }
-  e2: "QFM 2 · K channels\nown parameters\nsame bond readout" { class: quantum }
-  head: "head\n+ symmetrise" { class: plain }
-  out: "LCAG logits" { class: plain }
-}
+q2a: "QFM 2, ch 1\n4 qubits\n<XX+YY> / bond" { class: quantum }
+q2d: "..." { class: ghost }
+q2k: "QFM 2, ch K\nindependent\nparameters" { class: quantum }
+cat2: "concat" { class: op }
+head: "linear head\n+ symmetrise" { class: op }
+y: "LCAG logits" { class: io }
 
-model.p4 -> model.wh: (B, L, 4)
-model.wh -> model.am: (B, L, 4)
-model.am -> model.pre: (B, L, 2)
-model.pre -> model.e1: "a  (B, L, 2)"
-model.e1 -> model.agg: (B, L, L, K·nb)
-model.agg -> model.wn: "m  (B, L, K·nb)"
-model.wn -> model.e2: (B, L, 2K)
-model.e2 -> model.head: (B, L, L, K·nb)
-model.head -> model.out: (B, L, L, C)
-model.pre -> model.wn: { style.stroke-dash: 3 }
+x -> wh: "(B, L, 4)"
+wh -> am: "(B, L, 4)"
+am -> pre: "(B, L, 2)"
+pre -> pair: "a  (B, L, 2)"
+
+pair -> q1a: "(B, L, L, 4)"
+pair -> q1d: { class: faint }
+pair -> q1k: "(B, L, L, 4)"
+q1a -> cat1: "(B, L, L, nb)"
+q1d -> cat1: { class: faint }
+q1k -> cat1: "(B, L, L, nb)"
+
+cat1 -> agg: "(B, L, L, K*nb)"
+agg -> wn: "m  (B, L, K*nb)"
+pre -> wn: "a" { style: { stroke-dash: 3 } }
+
+wn -> q2a: "pair 1  (B, L, 2)"
+wn -> q2d: { class: faint }
+wn -> q2k: "pair K  (B, L, 2)"
+q2a -> cat2: "(B, L, L, nb)"
+q2d -> cat2: { class: faint }
+q2k -> cat2: "(B, L, L, nb)"
+
+cat2 -> head: "(B, L, L, K*nb)"
+head -> y: "(B, L, L, C)"
