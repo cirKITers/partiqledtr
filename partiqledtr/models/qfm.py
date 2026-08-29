@@ -357,18 +357,21 @@ ANGLE_MAPS = {"pair_polar": pair_polar, "legacy": legacy_angles}
 class QFMConstellation(nnx.Module):
     """Two message-passing blocks whose edge function is a shared-weight QFM.
 
-    Shapes, with ``B`` events, ``L`` padded particles, ``C`` classes and ``nb``
-    the arm's bond count (3/4/6/4 for the four arms, :func:`readout_bonds`)::
+    Shapes, with ``B`` events, ``L`` padded particles, ``C`` classes, ``nb`` the
+    arm's bond count (3/4/6/4 for the four arms, :func:`readout_bonds`) and ``K``
+    the channel count (``n_channels``, default 1 -- D108's node-state widening:
+    ``K`` independently initialised QFMs per block, so the inter-block node state
+    is ``2K`` numbers rather than 2)::
 
-        p4    (B, L, 4)      four-vectors
-        ang   (B, L, 2)      pair-polar angles, optionally whitened
-        a     (B, L, 2)      preconditioner (identity or elementwise residual MLP)
-        u1    (B, L, L, 4)   concat(a_i, a_j) -> folded to (B*L*L, 4) for the QFM
-        e1    (B, L, L, nb)  <XX_b> + <YY_b> per coupling bond (D107)
-        m     (B, L, nb)     masked mean over real neighbours
-        h     (B, L, 2)      [a ; m] @ w_node
-        e2    (B, L, L, nb)  second QFM block, its own parameters
-        out   (B, L, L, C)   symmetrised linear readout
+        p4    (B, L, 4)        four-vectors
+        ang   (B, L, 2)        pair-polar angles, optionally whitened
+        a     (B, L, 2)        preconditioner (identity or elementwise residual MLP)
+        u1    (B, L, L, 4)     concat(a_i, a_j) -> folded to (B*L*L, 4) per channel
+        e1    (B, L, L, K*nb)  <XX_b> + <YY_b> per coupling bond and channel (D107)
+        m     (B, L, K*nb)     masked mean over real neighbours
+        h     (B, L, 2K)       [a ; m] @ w_node, channel c's pair at h[..., 2c:2c+2]
+        e2    (B, L, L, K*nb)  second QFM block, its own parameters per channel
+        out   (B, L, L, C)     symmetrised linear readout
 
     The QFM parameters live here as :class:`flax.nnx.Param` leaves and reach the
     circuit through :meth:`~qml_essentials.model.Model.apply`, the functional call
@@ -385,6 +388,9 @@ class QFMConstellation(nnx.Module):
         n_classes: Number of LCAG classes ``C``.
         ansatz: Ansatz arm, one of :data:`ANSAETZE`.
         n_layers: Data-reuploading depth of each QFM.
+        n_channels: Independently initialised QFMs per block (D108). Widens the
+            inter-block node state to ``2 * n_channels`` numbers; the default 1
+            is the original architecture.
         angle_map: Key into :data:`ANGLE_MAPS`: ``"pair_polar"`` for the polar map
             of ``DECISIONS.md`` D24, ``"legacy"`` for the clustered control arm,
             which expects the ``"legacy"`` encoding.
@@ -416,6 +422,7 @@ class QFMConstellation(nnx.Module):
         *,
         ansatz: str = "XY_Brickwork",
         n_layers: int = 2,
+        n_channels: int = 1,
         angle_map: str = "pair_polar",
         enc_weights: str = "hamming",
         enc_reupload: str = "diagonal",
@@ -435,6 +442,8 @@ class QFMConstellation(nnx.Module):
             )
         if n_classes < 2:
             raise ValueError(f"n_classes must be >= 2, got {n_classes}")
+        if n_channels < 1:
+            raise ValueError(f"n_channels must be positive, got {n_channels}")
         if angle_map not in ANGLE_MAPS:
             raise ValueError(f"angle_map must be one of {sorted(ANGLE_MAPS)}, got {angle_map!r}")
         circuit(ansatz)  # resolve early, so an unknown arm fails here and not mid-build
@@ -455,17 +464,35 @@ class QFMConstellation(nnx.Module):
         # them trainable is a separate ROADMAP axis with its own failure mode.
         self.enc_matrix = jnp.asarray(encoding_matrix(enc_weights, enc_reupload))
 
-        arm = {"n_layers": n_layers, "enc_weights": enc_weights, "enc_reupload": enc_reupload}
-        first, second = make_qfm(ansatz, seed=seed, **arm), make_qfm(ansatz, seed=seed + 1, **arm)
         # Separate parameters per block: the two blocks do different jobs, and
-        # equivariance only needs sharing across *edges* (D28).
-        self.qfm1_params = nnx.Param(jnp.asarray(np.asarray(first.params)))
-        self.qfm2_params = nnx.Param(jnp.asarray(np.asarray(second.params)))
-        self._qfm1, self._qfm2 = first, second
+        # equivariance only needs sharing across *edges* (D28). Each block holds
+        # `n_channels` independent draws stacked on a leading axis; channel c of
+        # block b seeds `seed + 2c + b`, so `n_channels = 1` is exactly the old
+        # `(seed, seed + 1)` pair (D108).
+        blocks = [
+            [
+                make_qfm(
+                    ansatz,
+                    seed=seed + 2 * c + b,
+                    n_layers=n_layers,
+                    enc_weights=enc_weights,
+                    enc_reupload=enc_reupload,
+                )
+                for c in range(n_channels)
+            ]
+            for b in (0, 1)
+        ]
+        stack = [jnp.stack([jnp.asarray(np.asarray(m.params)) for m in block]) for block in blocks]
+        self.qfm1_params = nnx.Param(stack[0])
+        self.qfm2_params = nnx.Param(stack[1])
+        self._qfm1, self._qfm2 = blocks[0][0], blocks[1][0]
 
+        self.n_channels = n_channels
         self.n_bonds = len(readout_bonds(ansatz))
-        self.w_node = nnx.Linear(N_ANGLES + self.n_bonds, N_ANGLES, rngs=rngs)
-        self.head = nnx.Linear(self.n_bonds, n_classes, rngs=rngs)
+        self.w_node = nnx.Linear(
+            N_ANGLES + n_channels * self.n_bonds, n_channels * N_ANGLES, rngs=rngs
+        )
+        self.head = nnx.Linear(n_channels * self.n_bonds, n_classes, rngs=rngs)
 
     def _edges(self, qfm: Model, params: jax.Array, angles: jax.Array) -> jax.Array:
         """Evaluate one QFM on every directed edge of every event.
@@ -600,11 +627,20 @@ class QFMConstellation(nnx.Module):
         angles = self.edge_angles(x, mask)
         if angles.shape[0] == 0:
             return float("nan")
-        states = self._qfm1.apply(
-            params=self.qfm1_params[...], inputs=angles, execution_type="state"
-        )
         basis = dla_basis(self.ansatz, N_QUBITS)
-        return float(np.mean(g_purity_exact(np.asarray(states).reshape(-1, 2**N_QUBITS), basis)))
+        params = self.qfm1_params[...]
+        # Mean over channels: every channel encodes the same angles, so this is
+        # the average over the block's independent circuits (D108).
+        values = [
+            g_purity_exact(
+                np.asarray(
+                    self._qfm1.apply(params=params[c], inputs=angles, execution_type="state")
+                ).reshape(-1, 2**N_QUBITS),
+                basis,
+            )
+            for c in range(self.n_channels)
+        ]
+        return float(np.mean(values))
 
     def __call__(self, x: jax.Array, mask: jax.Array) -> jax.Array:
         """Predict LCAG class logits.
@@ -619,9 +655,22 @@ class QFMConstellation(nnx.Module):
         edge_mask = _edge_mask(mask)
         angles = self.encode(x)
 
-        messages = edge2node(self._edges(self._qfm1, self.qfm1_params[...], angles), edge_mask)
+        # Channels are unrolled: n_channels stays small (D108), and each call is
+        # the same jitted edge evaluation with a different parameter slice.
+        params1, params2 = self.qfm1_params[...], self.qfm2_params[...]
+        messages = jnp.concatenate(
+            [
+                edge2node(self._edges(self._qfm1, params1[c], angles), edge_mask)
+                for c in range(self.n_channels)
+            ],
+            axis=-1,
+        )
         hidden = self.w_node(jnp.concatenate([angles, messages], axis=-1))
+        pairs = hidden.reshape(*hidden.shape[:-1], self.n_channels, N_ANGLES)
 
-        edges = self._edges(self._qfm2, self.qfm2_params[...], hidden)
+        edges = jnp.concatenate(
+            [self._edges(self._qfm2, params2[c], pairs[..., c, :]) for c in range(self.n_channels)],
+            axis=-1,
+        )
         logits = self.head(edges)
         return (logits + jnp.swapaxes(logits, 1, 2)) / 2

@@ -130,6 +130,7 @@ def build_model(
     seed: int = 0,
     ansatz: str = "XY_Brickwork",
     n_layers: int = 2,
+    n_channels: int = 1,
     angle_map: str = "pair_polar",
     enc_weights: str = "hamming",
     enc_reupload: str = "diagonal",
@@ -152,6 +153,7 @@ def build_model(
         seed: Seed of the parameter-initialisation rng.
         ansatz: Ansatz arm of the quantum model.
         n_layers: Data-reuploading depth of the quantum model.
+        n_channels: Independent QFMs per block of the quantum model (D108).
         angle_map: Four-vector-to-angle map of the quantum model, a key of
             :data:`partiqledtr.models.qfm.ANGLE_MAPS`.
         enc_weights: Encoding weight strategy of the quantum model, a key of
@@ -190,6 +192,7 @@ def build_model(
         "n_blocks": n_blocks,
         "ansatz": ansatz,
         "n_layers": n_layers,
+        "n_channels": n_channels,
         "angle_map": angle_map,
         "enc_weights": enc_weights,
         "enc_reupload": enc_reupload,
@@ -351,6 +354,45 @@ def _split_arrays(
     return features, mask, labels
 
 
+def _group_optimizer(
+    module: nnx.Module, lr: float, lr_preconditioner: float | None, lr_qfm: float | None
+) -> nnx.Optimizer:
+    """One Adam per parameter group, when any group rate differs (D109).
+
+    Adam equalises per-parameter step sizes, so a shared base rate forces the
+    preconditioner and the circuit to move at the same speed whatever their
+    curvature; a per-group base rate is the only way to decouple them. ``None``
+    means "the shared rate", and all-``None`` is exactly the old single Adam.
+    """
+    if lr_preconditioner is None and lr_qfm is None:
+        return nnx.Optimizer(module, optax.adam(lr), wrt=nnx.Param)
+
+    def label(path: tuple, _leaf: Any) -> str:
+        keys = [str(getattr(entry, "key", entry)) for entry in path]
+        if "preconditioner" in keys:
+            return "preconditioner"
+        if any(key.startswith("qfm") for key in keys):
+            return "qfm"
+        return "classical"
+
+    # One label per variable, with the Param wrapper as the leaf: the gradient
+    # tree optax sees carries plain arrays at the wrapper's position.
+    labels = jax.tree_util.tree_map_with_path(
+        label,
+        nnx.state(module, nnx.Param),
+        is_leaf=lambda node: isinstance(node, nnx.Variable),
+    )
+    transform = optax.multi_transform(
+        {
+            "classical": optax.adam(lr),
+            "preconditioner": optax.adam(lr if lr_preconditioner is None else lr_preconditioner),
+            "qfm": optax.adam(lr if lr_qfm is None else lr_qfm),
+        },
+        labels,
+    )
+    return nnx.Optimizer(module, transform, wrt=nnx.Param)
+
+
 @nnx.jit
 def _logits(module: nnx.Module, x: jax.Array, mask: jax.Array) -> jax.Array:
     """One jitted forward pass."""
@@ -449,8 +491,11 @@ def train_model(
     epochs: int = 100,
     batch_size: int = 64,
     lr: float = 1e-3,
+    lr_preconditioner: float | None = None,
+    lr_qfm: float | None = None,
     ansatz: str = "XY_Brickwork",
     n_layers: int = 2,
+    n_channels: int = 1,
     angle_map: str = "pair_polar",
     enc_weights: str = "hamming",
     enc_reupload: str = "diagonal",
@@ -482,8 +527,13 @@ def train_model(
         epochs: Number of passes over the training split.
         batch_size: Events per optimisation step.
         lr: Adam learning rate.
+        lr_preconditioner: Optional separate Adam rate for the preconditioner's
+            parameters (D109); ``None`` shares ``lr``.
+        lr_qfm: Optional separate Adam rate for the circuit parameters (D109);
+            ``None`` shares ``lr``.
         ansatz: Ansatz arm of the quantum model; ignored by the classical ones.
         n_layers: Data-reuploading depth of the quantum model.
+        n_channels: Independent QFMs per block of the quantum model (D108).
         angle_map: Four-vector-to-angle map of the quantum model. Pair it with the
             matching ``encoding``: ``"legacy"`` with ``"legacy"``, otherwise
             ``"cartesian"``.
@@ -524,6 +574,7 @@ def train_model(
         "n_blocks": int(n_blocks),
         "ansatz": ansatz,
         "n_layers": int(n_layers),
+        "n_channels": int(n_channels),
         "angle_map": angle_map,
         "enc_weights": enc_weights,
         "enc_reupload": enc_reupload,
@@ -534,7 +585,7 @@ def train_model(
         "whitening": None if whitening is None else np.asarray(whitening).tolist(),
     }
     module = build_model(**config, seed=seed)
-    optimizer = nnx.Optimizer(module, optax.adam(lr), wrt=nnx.Param)
+    optimizer = _group_optimizer(module, lr, lr_preconditioner, lr_qfm)
     weights = jnp.asarray(class_weights(labels, n_classes), dtype=jnp.float32)
 
     # A fixed validation subset, so the purity series tracks the model rather than
@@ -612,6 +663,8 @@ def train_model(
         "epochs": epochs,
         "batch_size": batch_size,
         "lr": lr,
+        "lr_preconditioner": lr_preconditioner,
+        "lr_qfm": lr_qfm,
         "seed": seed,
         "train_loss": train_loss,
         **{f"val_{name}": value for name, value in val_metrics.items()},
