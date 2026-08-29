@@ -52,9 +52,32 @@ BASE: dict[str, Any] = {
 TRACE_KEYS = ("epoch", "train_loss", "val_loss", "g_purity", "tv_uniform", "mean_sin2")
 
 
-def cells() -> list[dict[str, Any]]:
-    """The smoke block: the learned preconditioner against its frozen control."""
-    return [{**BASE, "preconditioner": f} for f in ("none", "mlp")]
+def cells(n_channels: int = 1) -> list[dict[str, Any]]:
+    """The smoke block: the learned preconditioner against its frozen control.
+
+    ``n_channels > 1`` is the D108 widening dose; the key is added only then, so
+    the widened cells dedup against their own records and not the narrow ones.
+    """
+    wide = {"n_channels": n_channels} if n_channels > 1 else {}
+    return [{**BASE, **wide, "preconditioner": f} for f in ("none", "mlp")]
+
+
+def cells_opt() -> list[dict[str, Any]]:
+    """The optimizer smoke: per-group learning rates at the widened dose (D109).
+
+    Against the K=4 shared-rate baselines already in ``smoke.json``. The MLP
+    rate moves down and up around the shared 1e-3 (is the accuracy cost of the
+    preconditioner an optimisation artifact?); the circuit rate moves up with
+    and without the preconditioner (RESEARCH §7 saw the rescue at 1e-2, and the
+    ``none`` cell says whether a faster circuit helps regardless).
+    """
+    wide = {**BASE, "n_channels": 4}
+    return [
+        {**wide, "preconditioner": "mlp", "lr_preconditioner": 1e-4},
+        {**wide, "preconditioner": "mlp", "lr_preconditioner": 1e-2},
+        {**wide, "preconditioner": "mlp", "lr_qfm": 1e-2},
+        {**wide, "preconditioner": "none", "lr_qfm": 1e-2},
+    ]
 
 
 def load(name: str) -> dict[str, Any]:
@@ -121,14 +144,16 @@ def _safe(args: tuple[dict[str, Any], int]) -> dict[str, Any]:
         return {"cell": settings, "error": traceback.format_exc(limit=4)}
 
 
-def run(*, seeds: int, jobs: int, epochs: int, out: Path) -> list[dict[str, Any]]:
-    """Run every cell x seed, ``jobs`` at a time, saving as it goes."""
-    path = out / "smoke.json"
+def run(
+    block: list[dict[str, Any]], filename: str, *, seeds: int, jobs: int, epochs: int, out: Path
+) -> list[dict[str, Any]]:
+    """Run every cell x seed of one block, ``jobs`` at a time, saving as it goes."""
+    path = out / filename
     done: list[dict[str, Any]] = json.loads(path.read_text()) if path.exists() else []
     seen = {json.dumps(r["cell"], sort_keys=True) for r in done if "error" not in r}
     work = [
         ({**cell, "seed": seed}, epochs)
-        for cell in cells()
+        for cell in block
         for seed in range(seeds)
         if json.dumps({**cell, "seed": seed}, sort_keys=True) not in seen
     ]
@@ -193,11 +218,11 @@ def report(out: Path) -> None:
     """One row per cell: task numbers, the purity trajectory, and the correlations."""
     from partiqledtr.analysis import uniform_prior_mean
 
-    path = out / "smoke.json"
     rows: dict[str, list[dict[str, Any]]] = {}
-    for record in json.loads(path.read_text()):
-        if "error" not in record:
-            rows.setdefault(label(record["cell"]), []).append(record)
+    for path in sorted(out.glob("*.json")):
+        for record in json.loads(path.read_text()):
+            if "error" not in record:
+                rows.setdefault(label(record["cell"]), []).append(record)
 
     print(
         "\n| cell | n | train loss | acc known | purity/mu_n | r(P,L) spearman "
@@ -230,6 +255,8 @@ def main() -> None:
     # 40, matching phase 4b so the numbers are comparable run for run.
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--out", type=Path, default=OUT)
+    parser.add_argument("--channels", type=int, default=1, help="D108 widening dose")
+    parser.add_argument("--opt", action="store_true", help="run the D109 optimizer block")
     parser.add_argument("--report", action="store_true")
     args = parser.parse_args()
 
@@ -239,7 +266,9 @@ def main() -> None:
     if args.report:
         report(args.out)
         return
-    run(seeds=args.seeds, jobs=args.jobs, epochs=args.epochs, out=args.out)
+    block = cells_opt() if args.opt else cells(args.channels)
+    filename = "opt.json" if args.opt else "smoke.json"
+    run(block, filename, seeds=args.seeds, jobs=args.jobs, epochs=args.epochs, out=args.out)
     report(args.out)
 
 

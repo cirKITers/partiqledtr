@@ -44,3 +44,13 @@ epochs; end purities converge on the `mu_n` band from both sides while
 `mean_sin2` moves toward uniform. Task accuracy is unchanged (0.425 vs 0.428
 known) — the purity dynamics now reach the loss, and the loss still does not
 reach the task. Full reading and caveats: `RESEARCH.md` §12.
+
+## Findings (widening smoke, `--channels 4`, 2026-08-29)
+
+Capacity was a real bottleneck: K=4 lifts known accuracy 0.428 → **0.498 ±
+0.004** (`none`; every widened seed above every narrow seed, spread collapses
+10x), beating every phase-4b quantum cell. The purity-loss channel survives,
+attenuated (r(dP,dL) −0.41 ± 0.27, 4/5 negative). The preconditioner now
+*costs* accuracy at K=4 (0.475) while leading Perfect-LCAG (0.104) — the
+remaining confound is the shared learning rate (ROADMAP 4c item 4). Decision:
+the full experiment runs widened. Details: `RESEARCH.md` §13.

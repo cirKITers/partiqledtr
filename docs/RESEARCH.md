@@ -857,6 +857,42 @@ first trace row. Expansion cells (the manuscript's own `XY_Brickwork`,
 `pair_polar` inputs, and the floored `XY_AllPairs` specificity control, where the
 correlation must be absent) are specified in the study README.
 
+## 13. Widening smoke: capacity was a real bottleneck, and it is not the preconditioner's
+
+The D108 widening (`n_channels = 4` parallel QFMs per block, node state 2 -> 8
+numbers) on the same cells, seeds and data as §12:
+
+| cell | acc known | perfect known | purity/mu_n | r(dP, dL) Pearson |
+| --- | --- | --- | --- | --- |
+| K=1 `none` | 0.428 +- 0.043 | 0.062 | 0.19 -> 0.19 | -- |
+| K=1 `mlp` | 0.425 +- 0.015 | 0.092 | 0.19 -> 1.33 | -0.67 +- 0.18 (5/5 neg) |
+| K=4 `none` | **0.498 +- 0.004** | 0.093 | 0.19 -> 0.19 | -- |
+| K=4 `mlp` | 0.475 +- 0.008 | **0.104** | 0.19 -> 1.14 | -0.41 +- 0.27 (4/5 neg) |
+
+- **Widening pays, decisively.** +0.07 accuracy for the raw arm, every K=4 seed
+  above every K=1 seed, and the seed spread collapses (0.043 -> 0.004). 0.498
+  beats every quantum cell of phase 4b (best 0.453, `FINDINGS.md` §1) -- the
+  first architecture change here that moved the task rather than the
+  instrumentation. Cost: ~3.2x wall clock per run.
+- **The purity-loss channel survives the widening** (-0.41 +- 0.27, 4/5
+  negative), attenuated as expected -- with 4x the circuit parameters, more of
+  the early loss descent is carried by parameters the encoded-distribution
+  factor does not price.
+- **The preconditioner still does not pay on accuracy** -- at K=4 it *costs*
+  0.023 (0.475 vs 0.498, non-overlapping seed ranges) while remaining best on
+  Perfect-LCAG (0.104). The §12 hypothesis reading ("the mechanism matters once
+  there is something to learn") is therefore only half-supported so far: the
+  model now learns, the channel is open, and the learned distribution movement
+  still does not buy per-edge accuracy at this learning rate and epoch budget.
+  The split-optimiser item (4c item 4) is the obvious confound to clear next.
+- Validation *loss* ends at ~0.817 in all four cells while accuracy separates by
+  0.07 -- the class-weighted loss is not the metric the improvement lives in, so
+  correlation analyses should not be read as accuracy statements.
+
+Decision input for the full 4c experiment: run it widened (`n_channels = 4`),
+with {`none`, `mlp`} kept as an axis -- the preconditioner question is now about
+Perfect-LCAG and the split optimiser, not about whether the model can learn.
+
 ## Open questions this raises
 
 1. Does the §1 result survive at full dataset scale? It is the load-bearing

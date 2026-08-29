@@ -1112,3 +1112,46 @@ renders shims for all six nodes), and an overfit smoke test drives the GNN to
   why 4c is a phase and not a patch. Consequence: `w_node` and `head` widths now
   follow `n_bonds`, so phase-4b QFM checkpoints no longer load (the shape check
   rejects them, correctly).
+
+- **D108 Node-state widening is `n_channels` parallel QFMs per block, off by
+  default.** ROADMAP 4c item 2's middle option. The inter-block node state was
+  two numbers -- `w_node` maps to `N_ANGLES = 2` and a particle's whole hidden
+  representation must be re-encodable as two angles -- against the classical
+  GNN's 64. `n_channels = K` stacks K independently initialised parameter sets
+  per block on a leading axis, widens `w_node` to `Linear(2 + K*n_bonds, 2K)` so
+  each channel of block 2 encodes its own angle pair, and reads all `K*n_bonds`
+  bond features into the head. Cross-particle structure still comes only from
+  the QFMs (D27), edge sharing and equivariance are untouched, and `K = 1` is
+  bit-identical to the previous architecture (channel c of block b seeds
+  `seed + 2c + b`, so the K=1 draws are the old `(seed, seed+1)` pair and
+  channel 0 of a wide model starts at the narrow model's parameters).
+
+  Rejected alternatives: more qubits per edge (that is phase 6 -- it changes the
+  algebra, the readout and the purity scale all at once), and a classical width
+  channel beside the quantum one (weakens D27 and would have to be argued for).
+  Channels are unrolled in the forward pass rather than vmapped: K stays small,
+  and the unrolled form keeps the per-channel `Model.apply` calls identical to
+  the K=1 path. `g_purity` is unchanged (the encoded state is channel-independent);
+  `g_purity_exact` averages over the block's channels. The smoke dose is K=4
+  (`dev/s3-readout-channel/`, `--channels 4`).
+
+- **D109 `[user]` Per-group learning rates for the hybrid, as `lr_preconditioner`
+  and `lr_qfm` overrides on one shared Adam.** The 4c item 4 confound, made
+  testable. Adam equalises per-*parameter* step sizes (the update is
+  `lr * m/sqrt(v)`, ~`lr` in steady state), so it erases the natural
+  gradient-magnitude asymmetry between the encoder channel (`sigma^2`
+  sensitivity) and the circuit channel (`sigma^4`) and forces both groups to
+  march at the shared base rate whatever their curvature -- a shared rate is a
+  shared trust region, and the two groups live on different geometries
+  (unbounded MLP weights vs a 2pi-periodic bounded-curvature trig landscape).
+  Implemented as `optax.multi_transform` over path-derived labels
+  {preconditioner, qfm, classical}; all-`None` overrides reproduce the single
+  Adam exactly, and a rate of zero provably freezes its group (test).
+
+  **Rotosolve was considered for the circuit group and dropped** (user, after
+  review): its closed-form jump assumes the loss is a single sinusoid per
+  parameter, which fails here twice -- the XY gate generators have eigenvalue
+  gaps {1, 2}, so even each expectation value carries two harmonics, and the
+  softmax cross-entropy of the head output is not a trigonometric polynomial at
+  all. Only an approximate 3-point variant would apply, at ~3x the evaluation
+  cost per update for 144 shared parameters.

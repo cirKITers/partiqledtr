@@ -32,12 +32,17 @@ def main() -> None:
     records = [
         r for r in json.loads((STUDY / "results" / "smoke.json").read_text()) if "error" not in r
     ]
-    cells = sorted({r["cell"]["preconditioner"] for r in records})
+
+    def cell_key(record):
+        cell = record["cell"]
+        return f"K={cell.get('n_channels', 1)} {cell['preconditioner']}"
+
+    cells = sorted({cell_key(r) for r in records})
     FIGURES.mkdir(exist_ok=True)
 
     fig, axes = plt.subplots(len(cells), len(PANELS), figsize=(11, 3 * len(cells)), squeeze=False)
     for row, cell in enumerate(cells):
-        group = [r for r in records if r["cell"]["preconditioner"] == cell]
+        group = [r for r in records if cell_key(r) == cell]
         mu = uniform_prior_mean(group[0]["final_metrics"]["config"]["ansatz"], 4)
         for col, (key, title) in enumerate(PANELS):
             ax = axes[row][col]

@@ -1,6 +1,9 @@
 # The quantum model, end to end. Orange is a switch: a `train` flow input picks
 # one of its values. Edge labels are array shapes -- B events, L padded particles,
-# C LCAG classes. The classical `gnn` and `mlp` arms are deliberately not drawn.
+# C LCAG classes, nb the ansatz's coupling-bond count (3/4/6/4 for
+# XY_Brickwork/XY_Ring/XY_AllPairs/Circuit_19, D107), K = `n_channels` parallel
+# QFMs per block (default 1, D108). The classical `gnn` and `mlp` arms are
+# deliberately not drawn.
 #
 #   d2 docs/architecture.d2 docs/architecture.svg
 
@@ -22,11 +25,11 @@ model: "" {
   wh: "whiten\nfixed 4x4 rotation" { class: switch }
   am: "`angle_map`\npair_polar · legacy" { class: switch }
   pre: "`preconditioner`\nnone · mlp, elementwise" { class: switch }
-  e1: "QFM 1\n4 qubits, shared over every edge\nper-qubit Pauli-Z" { class: quantum }
+  e1: "QFM 1 · K channels\n4 qubits, shared over every edge\n<XX+YY> per bond, in-algebra" { class: quantum }
 
   agg: "masked mean\nparameter-free" { class: local }
-  wn: "`w_node`\nlinear on [a ; m]" { class: local }
-  e2: "QFM 2\nown parameters\nper-qubit Pauli-Z" { class: quantum }
+  wn: "`w_node`\nlinear on [a ; m]\nK angle pairs out" { class: local }
+  e2: "QFM 2 · K channels\nown parameters\nsame bond readout" { class: quantum }
   head: "head\n+ symmetrise" { class: plain }
   out: "LCAG logits" { class: plain }
 }
@@ -35,9 +38,9 @@ model.p4 -> model.wh: (B, L, 4)
 model.wh -> model.am: (B, L, 4)
 model.am -> model.pre: (B, L, 2)
 model.pre -> model.e1: "a  (B, L, 2)"
-model.e1 -> model.agg: (B, L, L, 4)
-model.agg -> model.wn: "m  (B, L, 4)"
-model.wn -> model.e2: (B, L, 2)
-model.e2 -> model.head: (B, L, L, 4)
+model.e1 -> model.agg: (B, L, L, K·nb)
+model.agg -> model.wn: "m  (B, L, K·nb)"
+model.wn -> model.e2: (B, L, 2K)
+model.e2 -> model.head: (B, L, L, K·nb)
 model.head -> model.out: (B, L, L, C)
 model.pre -> model.wn: { style.stroke-dash: 3 }
