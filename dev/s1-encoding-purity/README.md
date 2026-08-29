@@ -30,8 +30,8 @@ living here: `encoding_report` runs inside `generate`, and `encoding_cells` and
 gitignored `results/` the exported reports of the runs the tables above quote.
 
 ```sh
-fluksio run generate --seed 0 --wait          # or reuse a finished run
+fluksio run generate --sync partiqledtr --seed 0 --wait    # or reuse a finished run
 python dev/s1-encoding-purity/encoding_table.py <generate-run-id>
 
-fluksio run characterize --wait               # the synthetic prediction + arm table
+fluksio run characterize --sync partiqledtr --wait         # the prediction + arm table
 ```

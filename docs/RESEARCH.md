@@ -811,6 +811,52 @@ universal arm sits near `1/257` while a polynomial-DLA arm stays `Theta(1/n)`. T
 is a concrete experiment rather than a concession: `n = 4` is a design choice (D24),
 not a constraint.
 
+## 12. Phase 4c smoke: with the readout in the algebra, the channel opens
+
+The D107 readout change (`<XX_b> + <YY_b>` per coupling bond, in-algebra on every
+arm) resets every quantum number above, so its first measurement is a smoke block,
+not a sweep: `XY_Ring` x {`none`, `mlp`} on the clustered `legacy` encoding, 5
+seeds, 40 epochs, same splits as phase 4b (`dev/s3-readout-channel/`). The 4c
+success criterion is a within-run association of the g-purity and loss series --
+the thing §7-§9 could not show and phase 4b showed the absence of.
+
+| cell | n | train loss | acc known | purity/mu_n | r(dP, dL) Pearson |
+| --- | --- | --- | --- | --- | --- |
+| `none` | 5 | 0.802 | 0.428 | 0.19 -> 0.19 | -- (frozen control) |
+| `mlp` | 5 | 0.784 | 0.425 | 0.19 -> 1.33 | **-0.67 +- 0.18, 5/5 negative** |
+
+Read on first differences, because two co-trending series correlate trivially; a
+circular-shift null (all 38 shifts of the loss-difference series per run) puts
+every seed at `p <= 0.026`. Three things the per-seed traces say:
+
+- **The coupling is an early-training phenomenon.** The first-10-epoch difference
+  correlation is -0.43 to -0.98 per seed; the late window is ~0. That is the
+  manuscript's own rescue profile -- `exp_latent_drift`'s purity climb happens in
+  the first five epochs -- now visible on real kinematics.
+- **The preconditioner now *selects* rather than perturbs.** Under the old readout
+  the 10-seed end purity spanned [0.01, 1.91] (`FINDINGS.md` §2, "unconstrained
+  perturbation"). Here the after-one-epoch purities span 0.12-2.35 `mu_n` and the
+  endpoints contract to 0.73-1.77, converging on the uniform-mean band *from both
+  sides* -- seed 4 starts above and descends. `mean_sin2` moves toward ~0.5-0.7 in
+  every seed: spreading toward uniform, not pinning at `pi/2` (the D92
+  distinction).
+- **The channel is open; the task is unchanged.** Accuracy on known topologies is
+  0.425 vs 0.428 -- the mlp and control arms are indistinguishable on the task,
+  exactly as in §9. The purity dynamics now reach the loss, and the loss still
+  does not reach the task. That moves the bottleneck cleanly onto the
+  architecture (ROADMAP 4c item 2: the two-number node state), and it is the
+  first result here consistent with "the input-distribution mechanism matters
+  once there is something to learn" rather than "the mechanism does not matter".
+
+Caveats before this becomes a claim: smoke scale (one arm, one encoding, 5
+seeds); the Pearson difference correlation is carried by the large early
+co-movements (Spearman on differences is ~0 -- the bulk of small late steps are
+uncorrelated, consistent with the early-window reading); and the trace starts
+after epoch 1, so the epoch-0 -> 1 jump sits between `g_purity_initial` and the
+first trace row. Expansion cells (the manuscript's own `XY_Brickwork`,
+`pair_polar` inputs, and the floored `XY_AllPairs` specificity control, where the
+correlation must be absent) are specified in the study README.
+
 ## Open questions this raises
 
 1. Does the §1 result survive at full dataset scale? It is the load-bearing

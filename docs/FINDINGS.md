@@ -8,7 +8,7 @@ nothing solves.
 
 `RESEARCH.md` has the argument and the measurement history, `DECISIONS.md` why each
 choice was made, `NOTEPAD.md` what the tooling cost. This file is the claims.
-Figures and the data behind them are in `figures/`.
+Figures and the data behind them are in `dev/s2-expressivity/figures/`.
 
 ## 1. The task is learnable; the quantum arm does not learn it
 
@@ -188,7 +188,10 @@ which is an argument for it the theory cannot supply for itself.
 - **The readout is outside the algebra on the floor-free arms**, so the variance law
   does not cover our loss (see §2). This does not affect §4, which is about the encoded
   state alone, nor §5's task numbers, but it does mean no result here tests the
-  *trainability* half of the theory.
+  *trainability* half of the theory. **Fixed since (D107)**: the readout is now the
+  arm's own bond generators, which resets every quantum number in this file; the
+  first post-fix evidence (`RESEARCH.md` §12) shows the within-run purity-loss
+  correlation this caveat said was untestable.
 - **The purity observable was measured on a biased subset until 2026-08-27**: splits
   are ordered by topology, so the first 64 validation events are one topology at one
   multiplicity, which erased a 1.8x encoding effect. Fixed (D105); every number here

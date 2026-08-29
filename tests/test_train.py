@@ -191,6 +191,26 @@ def test_checkpoint_carries_the_model_configuration():
         npz_config(state_to_npz(_model()))
 
 
+def test_checkpoint_round_trip_preserves_a_non_default_ansatz():
+    """Head and node widths follow the arm's bond count (D107), so a checkpoint
+    must rebuild through its config's ansatz rather than through the default."""
+    config: dict[str, Any] = {
+        "model": "qfm",
+        "preconditioner": "none",
+        "n_features": 4,
+        "n_classes": C,
+        "ansatz": "XY_AllPairs",
+    }
+    module = build_model(**config)
+    payload = state_to_npz(module, config)
+
+    rebuilt = build_model(**npz_config(payload))
+    npz_to_state(rebuilt, payload)
+    x = jnp.asarray(np.random.default_rng(1).normal(size=(2, L, 4)))
+    mask = jnp.ones((2, L), dtype=bool)
+    np.testing.assert_allclose(module(x, mask), rebuilt(x, mask), atol=1e-6)
+
+
 @pytest.mark.parametrize(
     ("other", "match"),
     [({"dim": 16}, "shape"), ({"model": "mlp"}, "does not match")],

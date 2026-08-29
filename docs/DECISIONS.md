@@ -1082,3 +1082,33 @@ renders shims for all six nodes), and an overfit smoke test drives the GNN to
   `ROADMAP.md` and `NOTEPAD.md` -- the entire research record, and the reason this
   repo exists -- were untracked, with no history and no restore point. They are
   tracked now; only `reference/` (vendored papers) and the run directories are not.
+
+- **D107 The readout is the arm's own bond generators, `<XX_b> + <YY_b>` summed
+  per coupling bond.** Supersedes the readout half of D26. The unflattening
+  variance law `Var = P_g(rho) P_g(O) / dim g` needs the observable inside the
+  arm's algebra, and single-qubit Z is in no XY arm's DLA (asserted per arm in
+  `tests/test_qfm.py`, with the Z_q negative control) -- so the per-qubit Pauli-Z
+  readout had `P_g(O) = 0` on every floor-free arm and the preconditioner's
+  effect on the encoded state had no channel to the loss (`FINDINGS.md` §2,
+  ROADMAP 4c item 1). D26's citation of Theorem 1 was wrong for the arms in use:
+  the manuscript states it for `Z_i` only on the matchgate family, where
+  `d_Z = n > 0` puts Z inside the algebra, and reads `X_i X_{i+1} + Y_i Y_{i+1}`
+  on the off-diagonal family for exactly this reason (`exp_latent_drift`).
+
+  The bond set is the arm's own coupling graph, read off the circuit structure
+  (`ansaetze.bonds`) rather than assumed, and sorted: 3/4/6/4 bonds for
+  `XY_Brickwork`/`XY_Ring`/`XY_AllPairs`/`Circuit_19`. The `Model` carries the
+  `2 * n_bonds` interleaved strings `[XX_b, YY_b, ...]` and `_edges` sums each
+  pair, because the summed operator is itself the in-algebra generator the law
+  prices and because `<YY_b> = 0` identically on the RY product state at zero
+  parameters -- unsummed features would start half-dead. D26's surviving
+  constraints hold: the readout stays a vector (`n_bonds >= 3`, so no rank-1
+  logits over `C > 2` classes) in a fixed order shared across edges.
+
+  `Circuit_19` gets the same uniform bond rule rather than keeping per-qubit Z
+  (which *is* in its `su(2^n)`): the cross-arm comparison should vary the
+  algebra, not the algebra and the readout family at once, and continuity with
+  phase 4b is already gone -- this change resets every quantum number, which is
+  why 4c is a phase and not a patch. Consequence: `w_node` and `head` widths now
+  follow `n_bonds`, so phase-4b QFM checkpoints no longer load (the shape check
+  rejects them, correctly).

@@ -198,6 +198,13 @@ quantum number in `RESEARCH.md`, so it is a new phase rather than a patch. Succe
 criterion: the g-purity trajectory and the loss become correlated within a run, which
 is the thing phase 4 could not show and phase 4b showed the absence of.
 
+**Done (D107).** The readout is `<XX_b> + <YY_b>` per coupling bond, read off each
+arm's own circuit structure — 3/4/6/4 bonds for `XY_Brickwork`/`XY_Ring`/
+`XY_AllPairs`/`Circuit_19`, `Circuit_19` uniformly included so the comparison varies
+the algebra alone. In-algebra membership is asserted per arm in the tests, with the
+`Z_q` negative control. The study measuring the success criterion is
+`dev/s3-readout-channel/`.
+
 **2. Widen the node state.** `w_node` maps to `N_ANGLES = 2`, so a particle's hidden
 representation between message-passing blocks is **two numbers** — it has to be
 re-encodable as two angles. The classical GNN carries 64. This is the most likely

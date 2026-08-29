@@ -13,8 +13,9 @@ can only come from the quantum edge function (``DECISIONS.md`` D27).
 Encoding contract, verified by measurement rather than assumed (``DECISIONS.md``
 D25, D55, D96): re-uploaded ``RY`` gates on one wire add, so a layer rotates qubit
 ``q`` by ``theta_q = sum_f W[q, f] u_f`` for the effective weight matrix ``W`` of
-:func:`encoding_matrix`, and with zero ansatz parameters the per-qubit readout is
-exactly ``cos(n_layers * theta_q)``. The phase-3/4 arm has ``W = I`` -- feature
+:func:`encoding_matrix`, and with zero ansatz parameters the bond readout is
+exactly ``sin(n_layers * theta_j) sin(n_layers * theta_k)`` (``<Y_q> = 0`` on the
+RY product state, so the ``YY`` half vanishes there). The phase-3/4 arm has ``W = I`` -- feature
 ``f`` on qubit ``f`` alone, weight one. ROADMAP phase 4b arm B varies ``W`` and
 nothing else: exponential weights and a widened (``cyclic``) mask, which is what
 the unflattening manuscript's spectral preconditioning needs and what enlarges the
@@ -40,11 +41,12 @@ import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 from jax.typing import ArrayLike
+from qml_essentials import operations as op
 from qml_essentials.ansaetze import Encoding
 from qml_essentials.model import Model
 
 from partiqledtr.analysis import angle_stats, dla_basis, g_purity_exact, product_state_purity
-from partiqledtr.ansaetze import ANSAETZE, circuit
+from partiqledtr.ansaetze import ANSAETZE, bonds, circuit
 from partiqledtr.models.gnn import _edge_mask, edge2node, node2edge
 
 __all__ = [
@@ -59,6 +61,8 @@ __all__ = [
     "legacy_angles",
     "make_qfm",
     "pair_polar",
+    "readout_bonds",
+    "readout_observables",
     "reupload_mask",
 ]
 
@@ -174,6 +178,49 @@ def encoding_spectrum(matrix: np.ndarray, feature: int, n_layers: int) -> np.nda
     return np.array(sorted(reach))
 
 
+def readout_bonds(ansatz: str, n_qubits: int = N_QUBITS) -> tuple[tuple[int, int], ...]:
+    """The bonds an arm's readout measures, in a frozen order.
+
+    The arm's own coupling graph, read off its circuit structure via
+    :func:`partiqledtr.ansaetze.bonds` and sorted lexicographically -- the same
+    convention :func:`partiqledtr.analysis.arm_report` records.
+
+    Args:
+        ansatz: One of :data:`ANSAETZE`.
+        n_qubits: Number of qubits.
+
+    Returns:
+        Sorted ``(j, k)`` bonds with ``j < k``.
+    """
+    return tuple(sorted((min(bond), max(bond)) for bond in bonds(ansatz, n_qubits)))
+
+
+def readout_observables(ansatz: str, n_qubits: int = N_QUBITS) -> list[op.Operation]:
+    """The in-algebra readout: ``X_j X_k`` and ``Y_j Y_k`` per coupling bond.
+
+    The unflattening variance law ``Var = P_g(rho) P_g(O) / dim g`` needs the
+    observable inside the arm's dynamical Lie algebra; single-qubit ``Z`` is in
+    no XY arm's algebra, so the previous per-qubit readout had ``P_g(O) = 0``
+    and no channel from the encoded state to the loss (``DECISIONS.md`` D107).
+    The bond words are the arm's own generators, so they are in-algebra by
+    construction -- asserted per arm in the tests. The two strings of a bond are
+    interleaved ``[XX_b, YY_b, ...]`` and summed to ``<XX_b> + <YY_b>`` by the
+    consumer, the manuscript's own readout convention (``exp_latent_drift``).
+
+    Args:
+        ansatz: One of :data:`ANSAETZE`.
+        n_qubits: Number of qubits.
+
+    Returns:
+        ``2 * n_bonds`` Pauli-string observables.
+    """
+    observables = []
+    for j, k in readout_bonds(ansatz, n_qubits):
+        observables.append(op.PauliX(wires=j) @ op.PauliX(wires=k))
+        observables.append(op.PauliY(wires=j) @ op.PauliY(wires=k))
+    return observables
+
+
 def make_qfm(
     ansatz: str,
     *,
@@ -196,7 +243,8 @@ def make_qfm(
 
     Returns:
         A qml-essentials :class:`~qml_essentials.model.Model` with analytic
-        expectation values and one Pauli-Z observable per qubit.
+        expectation values and the arm's in-algebra bond observables of
+        :func:`readout_observables`.
 
     Raises:
         ValueError: If the ansatz, weights or mask is unknown, or ``n_layers`` is
@@ -214,7 +262,7 @@ def make_qfm(
         circuit_type=pqc,
         encoding=["RY"] * N_QUBITS,
         data_reupload=reupload_mask(enc_reupload, n_layers),
-        observables=list(range(N_QUBITS)),
+        observables=readout_observables(ansatz),
         shots=None,
         random_seed=seed,
     )
@@ -309,16 +357,17 @@ ANGLE_MAPS = {"pair_polar": pair_polar, "legacy": legacy_angles}
 class QFMConstellation(nnx.Module):
     """Two message-passing blocks whose edge function is a shared-weight QFM.
 
-    Shapes, with ``B`` events, ``L`` padded particles and ``C`` classes::
+    Shapes, with ``B`` events, ``L`` padded particles, ``C`` classes and ``nb``
+    the arm's bond count (3/4/6/4 for the four arms, :func:`readout_bonds`)::
 
         p4    (B, L, 4)      four-vectors
         ang   (B, L, 2)      pair-polar angles, optionally whitened
         a     (B, L, 2)      preconditioner (identity or elementwise residual MLP)
         u1    (B, L, L, 4)   concat(a_i, a_j) -> folded to (B*L*L, 4) for the QFM
-        e1    (B, L, L, 4)   per-qubit Pauli-Z expectation values
-        m     (B, L, 4)      masked mean over real neighbours
+        e1    (B, L, L, nb)  <XX_b> + <YY_b> per coupling bond (D107)
+        m     (B, L, nb)     masked mean over real neighbours
         h     (B, L, 2)      [a ; m] @ w_node
-        e2    (B, L, L, 4)   second QFM block, its own parameters
+        e2    (B, L, L, nb)  second QFM block, its own parameters
         out   (B, L, L, C)   symmetrised linear readout
 
     The QFM parameters live here as :class:`flax.nnx.Param` leaves and reach the
@@ -414,8 +463,9 @@ class QFMConstellation(nnx.Module):
         self.qfm2_params = nnx.Param(jnp.asarray(np.asarray(second.params)))
         self._qfm1, self._qfm2 = first, second
 
-        self.w_node = nnx.Linear(N_ANGLES + N_QUBITS, N_ANGLES, rngs=rngs)
-        self.head = nnx.Linear(N_QUBITS, n_classes, rngs=rngs)
+        self.n_bonds = len(readout_bonds(ansatz))
+        self.w_node = nnx.Linear(N_ANGLES + self.n_bonds, N_ANGLES, rngs=rngs)
+        self.head = nnx.Linear(self.n_bonds, n_classes, rngs=rngs)
 
     def _edges(self, qfm: Model, params: jax.Array, angles: jax.Array) -> jax.Array:
         """Evaluate one QFM on every directed edge of every event.
@@ -429,10 +479,12 @@ class QFMConstellation(nnx.Module):
         batch, n_leaves = angles.shape[0], angles.shape[1]
         flat = node2edge(angles).reshape(-1, N_QUBITS)
         out = qfm.apply(params=params, inputs=flat)
-        expected = (flat.shape[0], 1, 1, 1, N_QUBITS)
+        expected = (flat.shape[0], 1, 1, 1, 2 * self.n_bonds)
         if out.shape != expected:
             raise ValueError(f"QFM returned {out.shape}, expected {expected}")
-        return out.reshape(batch, n_leaves, n_leaves, N_QUBITS)
+        # <XX_b> + <YY_b> per bond: the summed pair is the arm's own generator,
+        # the in-algebra observable the variance law prices (D107).
+        return out.reshape(batch, n_leaves, n_leaves, self.n_bonds, 2).sum(-1)
 
     def encode(self, x: jax.Array) -> jax.Array:
         """Turn four-vectors into the angles the first QFM block encodes.

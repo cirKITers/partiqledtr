@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from flax import nnx
 
-from partiqledtr.analysis import offdiag_uniform_mean, product_state_purity
+from partiqledtr.analysis import dla_basis, offdiag_uniform_mean, product_state_purity
 from partiqledtr.data.features import apply_normalization, normalization_scales
 from partiqledtr.data.whitening import fit_whitening, purity_of_rotation, sample_rotation
 from partiqledtr.models import MODELS, n_params
@@ -25,6 +25,7 @@ from partiqledtr.models.qfm import (
     legacy_angles,
     make_qfm,
     pair_polar,
+    readout_bonds,
 )
 
 SEED = 7
@@ -34,6 +35,15 @@ C = 3
 # layers, Schuld's L+1 for a data-reuploading model). Recorded from the ansatz
 # definitions and frozen: a change here means the arm's circuit changed.
 QFM_PARAMS = {"XY_Brickwork": 18, "XY_Ring": 18, "XY_AllPairs": 36, "Circuit_19": 36}
+
+# Readout bonds per arm, read off each circuit's own structure() and frozen: a
+# change here means the arm's coupling graph -- and with it the readout -- changed.
+READOUT_BONDS = {
+    "XY_Brickwork": ((0, 1), (1, 2), (2, 3)),
+    "XY_Ring": ((0, 1), (0, 2), (1, 3), (2, 3)),
+    "XY_AllPairs": ((0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)),
+    "Circuit_19": ((0, 1), (0, 3), (1, 2), (2, 3)),
+}
 
 
 def _batch(rng, batch=3, n_leaves=4):
@@ -45,6 +55,11 @@ def _model(**kwargs):
     return QFMConstellation(4, C, rngs=nnx.Rngs(SEED), seed=SEED, **kwargs)
 
 
+def _word(letter, wires):
+    """The bare Pauli string with ``letter`` on ``wires`` and identity elsewhere."""
+    return "".join(letter if q in wires else "I" for q in range(N_QUBITS))
+
+
 @pytest.mark.parametrize(
     ("ansatz", "weights", "reupload"),
     [(a, "hamming", "diagonal") for a in ANSAETZE]
@@ -52,24 +67,59 @@ def _model(**kwargs):
 )
 @pytest.mark.parametrize("n_layers", [1, 2, 3])
 def test_encoding_is_a_ry_product_state(ansatz, n_layers, weights, reupload):
-    """With zero ansatz parameters the readout must be exactly cos(n_layers * W u).
+    """With zero ansatz parameters each bond readout must factorise into sines.
 
-    This pins the whole encoding contract at once: that the re-upload mask sends
-    each feature to the qubits it claims, that a qubit's several RY gates add into
-    one angle, that the observables come back in qubit order, that re-uploading
-    multiplies the angle, and that the encoded state is the RY product state the
-    purity forms assume (D25, D55, D96). The arm-B generalisation of the phase-3
-    ``cos(n_layers * u)`` law is exactly the appearance of ``W``.
+    On the RY product state ``<X_q> = sin(theta_q)`` and ``<Y_q> = 0``, so the
+    readout ``<XX_b>`` must be exactly ``sin(n_layers * theta_j) sin(n_layers *
+    theta_k)`` with ``theta = W u``, and every ``<YY_b>`` slot must vanish. This
+    pins the whole encoding contract at once: that the re-upload mask sends each
+    feature to the qubits it claims, that a qubit's several RY gates add into one
+    angle, that the observables come back interleaved ``[XX_b, YY_b]`` in bond
+    order, that re-uploading multiplies the angle, and that the encoded state is
+    the RY product state the purity forms assume (D25, D55, D96, D107).
     """
     qfm = make_qfm(ansatz, n_layers=n_layers, seed=SEED, enc_weights=weights, enc_reupload=reupload)
     u = jnp.asarray(np.random.default_rng(SEED).uniform(0, np.pi, size=(5, N_QUBITS)))
     matrix = encoding_matrix(weights, reupload)
 
-    out = qfm(params=jnp.zeros_like(jnp.asarray(np.asarray(qfm.params))), inputs=u)
+    out = np.asarray(qfm(params=jnp.zeros_like(jnp.asarray(np.asarray(qfm.params))), inputs=u))
 
-    assert out.shape == (5, N_QUBITS)
-    expected = np.cos(n_layers * (np.asarray(u) @ matrix.T))
-    assert np.allclose(np.asarray(out), expected, atol=1e-4)
+    bonds = readout_bonds(ansatz)
+    assert out.shape == (5, 2 * len(bonds))
+    sines = np.sin(n_layers * (np.asarray(u) @ matrix.T))
+    for i, (j, k) in enumerate(bonds):
+        assert np.allclose(out[:, 2 * i], sines[:, j] * sines[:, k], atol=1e-4)
+        assert np.allclose(out[:, 2 * i + 1], 0.0, atol=1e-4)
+
+
+@pytest.mark.parametrize("ansatz", ANSAETZE)
+def test_readout_observables_are_in_the_algebra(ansatz):
+    """The premise of the variance law, asserted per arm (D107).
+
+    ``Var = P_g(rho) P_g(O) / dim g`` needs ``O in i g``; a readout outside the
+    algebra has ``P_g(O) = 0`` and no channel from the encoded state to the loss,
+    which is what phase 4b measured with per-qubit Z (``FINDINGS.md`` §2).
+    """
+    words = {word.to_pauli_string() for word in dla_basis(ansatz, N_QUBITS)}
+    for bond in readout_bonds(ansatz):
+        assert _word("X", bond) in words
+        assert _word("Y", bond) in words
+
+
+def test_single_qubit_z_is_not_in_the_xy_algebras():
+    """The negative control that unmade D26: ``Z_q`` is outside every XY algebra,
+    so the old per-qubit readout satisfied the variance law's premise on none of
+    the floor-free arms."""
+    for ansatz in ("XY_Brickwork", "XY_Ring", "XY_AllPairs"):
+        words = {word.to_pauli_string() for word in dla_basis(ansatz, N_QUBITS)}
+        assert not any(_word("Z", (q,)) in words for q in range(N_QUBITS))
+
+
+@pytest.mark.parametrize("ansatz", ANSAETZE)
+def test_readout_bonds_are_deterministic(ansatz):
+    """The bond order is the readout's feature order, so it must be frozen."""
+    assert readout_bonds(ansatz) == READOUT_BONDS[ansatz]
+    assert len(make_qfm(ansatz, seed=SEED).observables) == 2 * len(READOUT_BONDS[ansatz])
 
 
 def _signs():
@@ -276,8 +326,8 @@ def test_constellation_validates_its_arguments():
 
 def test_registered_as_a_model_arm():
     assert MODELS["qfm"] is QFMConstellation
-    # 2 x 18 quantum + Linear(6, 2) + Linear(4, 3) for the XY arm at C = 3.
-    assert n_params(_model()) == 2 * QFM_PARAMS["XY_Brickwork"] + 14 + 15
+    # 2 x 18 quantum + Linear(2 + 3, 2) + Linear(3, 3): XY_Brickwork has 3 bonds.
+    assert n_params(_model()) == 2 * QFM_PARAMS["XY_Brickwork"] + 12 + 12
 
 
 def test_sample_rotation_is_a_rotation():
