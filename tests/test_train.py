@@ -145,6 +145,7 @@ def test_overfits_a_tiny_batch(capsys):
         "n_blocks": 2,
         "ansatz": "XY_Brickwork",
         "n_layers": 2,
+        "n_channels": 1,
         "angle_map": "pair_polar",
         "enc_weights": "hamming",
         "enc_reupload": "diagonal",
@@ -192,14 +193,16 @@ def test_checkpoint_carries_the_model_configuration():
 
 
 def test_checkpoint_round_trip_preserves_a_non_default_ansatz():
-    """Head and node widths follow the arm's bond count (D107), so a checkpoint
-    must rebuild through its config's ansatz rather than through the default."""
+    """Head and node widths follow the arm's bond count and channel count
+    (D107, D108), so a checkpoint must rebuild through its config's ansatz and
+    ``n_channels`` rather than through the defaults."""
     config: dict[str, Any] = {
         "model": "qfm",
         "preconditioner": "none",
         "n_features": 4,
         "n_classes": C,
         "ansatz": "XY_AllPairs",
+        "n_channels": 2,
     }
     module = build_model(**config)
     payload = state_to_npz(module, config)
@@ -482,6 +485,57 @@ def test_quantum_arm_streams_the_angle_distribution_beside_the_purity():
         assert len(final[key]["tv_uniform"]) == 4
         assert len(final[key]["mean_sin2"]) == 4
     assert final["angle_stats_final"]["n_bins"] == [36.0]
+
+
+def test_split_learning_rates_move_exactly_the_groups_they_name():
+    """The D109 split: per-group Adam rates through one optimizer.
+
+    Adam equalises per-parameter step sizes, so the only way two groups train at
+    genuinely different speeds is a per-group base rate. A rate of zero is the
+    sharp probe: that group must not move at all, while the others train.
+    """
+    split = _split()
+    cartesian = dict(split)
+    cartesian["features_cartesian"] = np.concatenate(
+        [split["features_angles"], np.ones((len(split["lcag"]), L, 1), np.float32)], axis=-1
+    )
+
+    def fit(**kwargs):
+        loop = train_model(cartesian, cartesian, {"n_classes": C}, seed=SEED, model="qfm",
+                           preconditioner="mlp", encoding="cartesian", epochs=1,
+                           batch_size=N, lr=1e-3, **kwargs)  # fmt: skip
+        while True:
+            try:
+                next(loop)
+            except StopIteration as stop:
+                return stop.value
+
+    reference = build_model(model="qfm", preconditioner="mlp", n_features=4, n_classes=C,
+                            seed=SEED)  # fmt: skip
+
+    module, final = fit(lr_preconditioner=0.0)
+    assert final["lr_preconditioner"] == 0.0 and final["lr_qfm"] is None
+    frozen = nnx.state(module.preconditioner, nnx.Param)
+    for a, b in zip(
+        jax.tree.leaves(frozen),
+        jax.tree.leaves(nnx.state(reference.preconditioner, nnx.Param)),
+        strict=True,
+    ):
+        np.testing.assert_array_equal(np.asarray(a), np.asarray(b))
+    assert not np.allclose(
+        np.asarray(module.qfm1_params[...]), np.asarray(reference.qfm1_params[...])
+    )
+
+    module, final = fit(lr_qfm=0.0)
+    assert final["lr_qfm"] == 0.0
+    np.testing.assert_array_equal(
+        np.asarray(module.qfm1_params[...]), np.asarray(reference.qfm1_params[...])
+    )
+    changed = jax.tree.leaves(nnx.state(module.preconditioner, nnx.Param))
+    initial = jax.tree.leaves(nnx.state(reference.preconditioner, nnx.Param))
+    assert any(
+        not np.allclose(np.asarray(a), np.asarray(b)) for a, b in zip(changed, initial, strict=True)
+    )
 
 
 def test_classical_arm_omits_the_angle_ports():

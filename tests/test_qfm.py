@@ -293,6 +293,36 @@ def test_gradients_flow_through_the_quantum_edge_function_repeatedly():
             assert jnp.allclose(a, b, atol=1e-6)
 
 
+def test_widened_channels_widen_the_node_state_and_nothing_else():
+    """ROADMAP 4c item 2, the several-QFMs-per-edge route (D108).
+
+    ``n_channels = K`` runs K independently initialised QFMs per block, so the
+    inter-block node state widens from 2 to 2K numbers -- while the classical
+    parts stay particle-local (D27), the edge weights stay shared, and channel 0
+    of each block starts at exactly the K=1 parameters, so the widening adds
+    draws without re-initialising the narrow model it contains.
+    """
+    rng = np.random.default_rng(SEED)
+    x, mask = _batch(rng)
+    narrow, wide = _model(), _model(n_channels=4)
+
+    logits = wide(x, mask)
+    assert logits.shape == (*x.shape[:2], x.shape[1], C)
+    assert jnp.array_equal(logits, jnp.swapaxes(logits, 1, 2))
+    permutation = rng.permutation(x.shape[1])
+    permuted = wide(x[:, permutation], mask[:, permutation])
+    expected = logits[:, permutation][:, :, permutation]
+    assert np.allclose(np.asarray(permuted), np.asarray(expected), atol=1e-5)
+
+    # 4 x 2 x 18 quantum + Linear(2 + 12, 8) + Linear(12, 3) at 3 bonds.
+    assert n_params(wide) == 4 * 2 * QFM_PARAMS["XY_Brickwork"] + 120 + 39
+    for name in ("qfm1_params", "qfm2_params"):
+        assert np.allclose(np.asarray(getattr(wide, name)[0]), np.asarray(getattr(narrow, name)[0]))
+
+    with pytest.raises(ValueError, match="n_channels"):
+        _model(n_channels=0)
+
+
 def test_a_front_end_starts_as_the_identity():
     x, mask = _batch(np.random.default_rng(SEED))
     preconditioner = ElementwiseResidualMLP(2, rngs=nnx.Rngs(SEED))
