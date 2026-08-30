@@ -933,6 +933,61 @@ the 5-seed shared-rate baselines:
 Best mlp accuracy and Perfect-LCAG, correlation still measurable, and the
 preconditioner comparison no longer confounded by the circuit's tracking speed.
 
+## 15. Phase 4c full grid: the mechanism is real, specific, and modest
+
+The §14 configuration (K=4, `lr_qfm` 1e-2, rest 1e-3) over both floor-free
+ansaetze x {none, mlp} x {clustered legacy, pair_polar} plus the floored
+`XY_AllPairs` specificity control; 5 seeds, 40 epochs, `results/full.json`.
+
+| ansatz | encoding | acc `none` | acc `mlp` | perfect n/m | purity/mu_n (mlp) | r(dP,dL) (mlp) |
+| --- | --- | --- | --- | --- | --- | --- |
+| `XY_Ring` | legacy | 0.481 +- .023 | 0.494 +- .005 | .095/.106 | 0.19 -> 1.22 | -0.27 (4/5 neg) |
+| `XY_Brickwork` | legacy | 0.474 +- .012 | 0.484 +- .015 | .089/.105 | 0.15 -> 1.20 | -0.30 (5/5 neg) |
+| `XY_Ring` | pair_polar | 0.521 +- .010 | 0.515 +- .022 | .137/.140 | 1.60 -> 1.61 | +0.21 (0/5 neg) |
+| `XY_Brickwork` | pair_polar | 0.499 +- .008 | 0.507 +- .014 | .134/.142 | 1.61 -> 1.75 | 0.00 |
+| `XY_AllPairs` (floored) | legacy | -- | **0.563 +- .011** | --/.116 | 1.45 -> 1.17 | **0.04 +- 0.06** |
+
+Four results, in decreasing order of confidence:
+
+1. **The specificity control passes.** The per-epoch purity-loss coupling is
+   present on exactly the four cells the theory picks out -- floor-free algebra
+   x clustered inputs (-0.27, -0.30; 9/10 seeds negative) -- and absent on the
+   floored arm (0.04 +- 0.06) *despite* its purity trending (raw Spearman -0.85:
+   trend without coupling, which the first-difference statistic correctly
+   rejects). On favourable `pair_polar` inputs, already at 1.60 `mu_n`, the
+   coupling is likewise absent (+0.21, 0.00) and the preconditioner barely moves
+   the distribution. The channel opens exactly where `P_g` has headroom and the
+   algebra prices it.
+2. **The rescue engages only where needed, and pays there.** On clustered
+   inputs the preconditioner lifts both floor-free arms (+0.013, +0.010
+   accuracy; +0.011, +0.016 Perfect-LCAG); on `pair_polar` it is neutral
+   (-0.006, +0.008). The encoding hierarchy itself (pair_polar above legacy by
+   0.025-0.040 on the same arm) runs in the direction the starting purity
+   predicts.
+3. **The rescue is partial.** `XY_Ring` legacy+mlp (0.494) recovers roughly a
+   third of the gap to `pair_polar` none (0.521), and the Perfect-LCAG gap
+   (0.106 vs 0.137) closes less. Moving the marginals to the uniform band does
+   not recover the information the legacy product encoding destroyed --
+   consistent with the elementwise MLP's design limit (it cannot mix features).
+4. **The best cell overall is the floored control**: `XY_AllPairs` on clustered
+   inputs at 0.563 +- 0.011, ahead of every floor-free cell on either encoding.
+   Input-distribution *indifference* is an advantage on clustered data -- the
+   sharpened form of `FINDINGS.md` §6's tension. Confounded, and flagged as
+   such: that arm also carries 106 circuit parameters (vs 70) and the widest
+   readout (6 bonds -> 24 features at K=4). The missing `XY_AllPairs` x {none,
+   pair_polar} cells decide whether it is the algebra or the capacity; they are
+   the first follow-up.
+
+Unknown-topology accuracy sits at 0.39-0.42 for every cell -- generalisation
+across tree shapes remains unsolved, unchanged by any of this.
+
+**Verdict on the phase-4c hypothesis** ("the effect becomes pronounced once
+there is something to learn"): confirmed in the specific sense. With a readout
+in the algebra (D107), an architecture that learns (D108) and an optimizer that
+tracks (D109), the preconditioner's distribution movement is coupled to the
+loss and buys a real, modest task gain exactly on the cells where the theory
+says the input distribution is decisive -- and nowhere else.
+
 ## Open questions this raises
 
 1. Does the §1 result survive at full dataset scale? It is the load-bearing

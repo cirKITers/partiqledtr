@@ -54,3 +54,15 @@ attenuated (r(dP,dL) −0.41 ± 0.27, 4/5 negative). The preconditioner now
 *costs* accuracy at K=4 (0.475) while leading Perfect-LCAG (0.104) — the
 remaining confound is the shared learning rate (ROADMAP 4c item 4). Decision:
 the full experiment runs widened. Details: `RESEARCH.md` §13.
+
+## Findings (optimizer smoke `--opt` + full grid `--full`, 2026-08-29/30)
+
+The preconditioner's accuracy cost was the *circuit's* rate: `lr_qfm = 1e-2`
+recovers it exactly (RESEARCH §14). The full grid at that pick (§15): the
+purity–loss coupling appears on exactly the floor-free × clustered cells and
+nowhere else (floored `XY_AllPairs` control: r(dP,dL) = 0.04 ± 0.06); the
+preconditioner pays where the theory says it should (+0.010–0.013 acc,
++0.011–0.016 perfect) and is neutral on favourable inputs; the rescue is
+partial (~1/3 of the encoding gap); and the floored arm on clustered inputs is
+the best cell overall (0.563 — capacity-confounded, follow-up cells named in
+§15).
