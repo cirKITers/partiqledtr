@@ -650,6 +650,20 @@ wheels = [
 ]
 
 [[package]]
+name = "jaqsi"
+version = "0.1.0"
+source = { git = "https://github.com/cirKITers/jaqsi?rev=8d703e697e3144fea09c83a9bbbf5294737fadd5#8d703e697e3144fea09c83a9bbbf5294737fadd5" }
+dependencies = [
+    { name = "diffrax" },
+    { name = "equinox" },
+    { name = "jax" },
+    { name = "jaxlib" },
+    { name = "optax" },
+    { name = "psutil" },
+    { name = "scipy" },
+]
+
+[[package]]
 name = "jax"
 version = "0.11.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1068,6 +1082,7 @@ source = { editable = "." }
 dependencies = [
     { name = "flax" },
     { name = "fluksio" },
+    { name = "jaqsi" },
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "optax" },
@@ -1086,11 +1101,12 @@ dev = [
 requires-dist = [
     { name = "flax", specifier = ">=0.12.9" },
     { name = "fluksio", git = "https://git.stroblme.de/Fluksio/app?subdirectory=backend&rev=cc4091166ec4e537d26cea75c57bead9d9dcd06c" },
+    { name = "jaqsi", git = "https://github.com/cirKITers/jaqsi?rev=8d703e697e3144fea09c83a9bbbf5294737fadd5" },
     { name = "matplotlib", specifier = ">=3.9" },
     { name = "numpy", specifier = ">=2.3" },
     { name = "optax", specifier = ">=0.2.8" },
     { name = "phasespace-jax", git = "https://github.com/cirKITers/phasespace-jax?rev=9e2954f973fd77cc1dee6a3f901c61753b359b3f" },
-    { name = "qml-essentials", git = "https://github.com/cirKITers/qml-essentials?rev=4314e2ab9408458dcc3404d17ff0d46b390411ab" },
+    { name = "qml-essentials", git = "https://github.com/cirKITers/qml-essentials?rev=f7bfce419ceafdb87477dc5eed676f3820c159ae" },
 ]
 
 [package.metadata.requires-dev]
@@ -1394,15 +1410,13 @@ wheels = [
 
 [[package]]
 name = "qml-essentials"
-version = "0.2.3"
-source = { git = "https://github.com/cirKITers/qml-essentials?rev=4314e2ab9408458dcc3404d17ff0d46b390411ab#4314e2ab9408458dcc3404d17ff0d46b390411ab" }
+version = "0.3.0"
+source = { git = "https://github.com/cirKITers/qml-essentials?rev=f7bfce419ceafdb87477dc5eed676f3820c159ae#f7bfce419ceafdb87477dc5eed676f3820c159ae" }
 dependencies = [
-    { name = "diffrax" },
-    { name = "equinox" },
+    { name = "jaqsi" },
     { name = "jax" },
     { name = "jaxlib" },
-    { name = "optax" },
-    { name = "psutil" },
+    { name = "numpy" },
     { name = "scipy" },
 ]
 

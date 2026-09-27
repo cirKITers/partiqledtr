@@ -11,6 +11,7 @@ dependencies = [
     "matplotlib>=3.9",
     "qml-essentials",
     "phasespace-jax",
+    "jaqsi",
     "fluksio",
 ]
 
@@ -23,7 +24,8 @@ build-backend = "hatchling.build"
 [tool.uv.sources]
 phasespace-jax = { git = "https://github.com/cirKITers/phasespace-jax", rev = "9e2954f973fd77cc1dee6a3f901c61753b359b3f"}
 fluksio = { git = "https://git.stroblme.de/Fluksio/app", rev = "cc4091166ec4e537d26cea75c57bead9d9dcd06c", subdirectory = "backend" }
-qml-essentials = { git = "https://github.com/cirKITers/qml-essentials", rev = "4314e2ab9408458dcc3404d17ff0d46b390411ab" }
+qml-essentials = { git = "https://github.com/cirKITers/qml-essentials", rev = "f7bfce419ceafdb87477dc5eed676f3820c159ae" }
+jaqsi = { git = "https://github.com/cirKITers/jaqsi", rev = "8d703e697e3144fea09c83a9bbbf5294737fadd5" }
 
 [dependency-groups]
 dev = ["ruff>=0.12", "ty", "pytest>=8"]
