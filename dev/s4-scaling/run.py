@@ -13,13 +13,16 @@ three ``pair_polar_*`` candidates are priced in g-purity on real kinematics
 *before any training*, and the grid runs the chart whose induced angle law sits
 at or above ``mu_n`` on the floor-free arms (the phase-4b gate, D97).
 
-Runs in process against the splits ``dev/s2-expressivity/data`` exported from
-generate run ``1787760161002-8bde9189`` -- the same data as s2/s3, deliberately,
-so the register and chart are the only things that moved between the studies.
+Runs against generate run ``1787760161002-8bde9189`` -- the same data as s2/s3,
+deliberately, so the register and chart are the only things that moved between
+the studies. ``--fluksio`` submits every cell as a versioned run of the ``train``
+flow (D113); without it the cells run in process on the splits
+``dev/s2-expressivity/data`` exported from that run, which is the sandbox path.
 
     python dev/s4-scaling/run.py --encodings   # price the three charts, no training
     python dev/s4-scaling/run.py --gate        # one worst-case cell, cost projection
-    python dev/s4-scaling/run.py               # the smoke grid (6 cells x 3 seeds)
+    python dev/s4-scaling/run.py --import-inprocess  # seeds 0-2, run in process (D114)
+    python dev/s4-scaling/run.py --fluksio     # the grid (6 cells x 5 seeds), versioned
     python dev/s4-scaling/run.py --report      # tables + correlations
 """
 
@@ -37,6 +40,14 @@ STUDY = Path(__file__).resolve().parent
 #: The s2 export of the pinned generate run, reused unchanged (module docstring).
 DATA = STUDY.parent / "s2-expressivity" / "data"
 OUT = STUDY / "results"
+
+#: The pinned generate run `DATA` was exported from; `--fluksio` resolves the
+#: dataset artifacts from it (D113).
+GENERATE_RUN = "1787760161002-8bde9189"
+
+#: The day the in-process smoke seeds landed (RESEARCH §16). Their records carry
+#: durations but no timestamps, so the import is stamped with the day (D114).
+INPROCESS_DATE = "2026-09-02T00:00:00+00:00"
 
 #: The chart the grid encodes, set by the ``--encodings`` gate (results/encoding.json).
 CHART = "pair_polar_boost"
@@ -193,6 +204,149 @@ def run(
     return done
 
 
+def _trace(client: Any, run_id: str) -> list[dict[str, float]]:
+    """Reassemble the per-epoch trace from a run's streamed metrics (s5's helper).
+
+    Zips the streamed ports into the same per-epoch rows the in-process path
+    writes, so ``report`` and ``correlations`` need no second code path.
+    """
+    series: dict[str, list[float]] = {}
+    for key in TRACE_KEYS:
+        # Streamed metrics are named `<flow>.<port>`, one {step, value} row each.
+        rows = client.metrics(run_id, f"train.{key}")
+        if rows:
+            series[key] = [row["value"] for row in sorted(rows, key=lambda row: row["step"])]
+    length = min((len(v) for v in series.values()), default=0)
+    return [{key: series[key][i] for key in series} for i in range(length)]
+
+
+def _dataset(client: Any, dataset: str) -> dict[str, Any]:
+    """The dataset inputs of the ``train`` flow, as the generate run recorded them."""
+    result = client.run(dataset).get("result") or {}
+    names = ("dataset_train", "dataset_val", "dataset_test", "dataset_meta")
+    missing = [name for name in names if name not in result]
+    if missing:
+        raise SystemExit(f"run {dataset} has no {missing}; is it a finished generate run?")
+    return {name: result[name] for name in names}
+
+
+def run_fluksio(
+    block: list[dict[str, Any]],
+    filename: str,
+    dataset: str,
+    *,
+    seeds: int,
+    jobs: int,
+    epochs: int,
+    out: Path,
+) -> list[dict[str, Any]]:
+    """Run a block through the engine: every cell one versioned run (D113).
+
+    The s5 pattern: artifacts resolved from the pinned generate run, ``jobs``
+    submissions in flight, records appended to the same JSON shape the
+    in-process path writes, with the trace rebuilt from the streamed metrics.
+    """
+    import time as clock
+
+    from fluksio.sdk.client import Client
+
+    client = Client()
+    data = _dataset(client, dataset)
+
+    path = out / filename
+    done: list[dict[str, Any]] = json.loads(path.read_text()) if path.exists() else []
+    seen = {json.dumps(r["cell"], sort_keys=True) for r in done if "error" not in r}
+    queue = [
+        {**cell, "seed": seed}
+        for cell in block
+        for seed in range(seeds)
+        if json.dumps({**cell, "seed": seed}, sort_keys=True) not in seen
+    ]
+    total = len(done) + len(queue)
+    print(f"s4: {len(queue)} to submit ({len(seen)} already done), {jobs} in flight", flush=True)
+
+    inflight: list[tuple[dict[str, Any], Any]] = []
+    while queue or inflight:
+        while queue and len(inflight) < jobs:
+            settings = queue.pop(0)
+            params = {**data, **settings, "epochs": epochs}
+            handle = client.submit("train", params, seed=settings["seed"])
+            inflight.append((settings, handle))
+        clock.sleep(10.0)
+        for settings, handle in list(inflight):
+            if not handle.refresh().done:
+                continue
+            inflight.remove((settings, handle))
+            payload = handle.result or {}
+            done.append(
+                {
+                    "cell": settings,
+                    "run": handle.id,
+                    "final_metrics": payload.get("final_metrics"),
+                    "test_metrics": {
+                        name: (payload.get("test_metrics") or {}).get(name)
+                        for name in ("known", "unknown")
+                    },
+                    "dla_report": payload.get("dla_report"),
+                    "trace": _trace(client, handle.id),
+                }
+                if handle.status == "ok"
+                else {"cell": settings, "run": handle.id, "error": handle.status}
+            )
+            path.write_text(json.dumps(done, indent=1))
+            print(f"  [{len(done)}/{total}] {handle.status} {label(settings)}", flush=True)
+    return done
+
+
+def import_inprocess(filename: str, dataset: str, *, out: Path) -> None:
+    """Record the in-process seeds of ``filename`` in the engine (D114).
+
+    They ran through :func:`one_cell` before D113, on qml-essentials' built-in
+    simulator. fluksio's import stores each as a finished ``train`` run with
+    ``cause="import"`` and no commit or code digest -- versioned as what it is,
+    not as a run of today's code -- with its params completed the way a
+    submission would be, so an imported cell and a native one share a params
+    digest. Re-importing is a no-op (keyed by ``external_id``); the run id is
+    written back into the record.
+    """
+    from datetime import datetime
+
+    from fluksio.sdk.client import Client
+
+    client = Client()
+    data = _dataset(client, dataset)
+    path = out / filename
+    done: list[dict[str, Any]] = json.loads(path.read_text())
+    todo = [r for r in done if "error" not in r and "run" not in r]
+    ts = datetime.fromisoformat(INPROCESS_DATE).timestamp()
+    entries = [
+        {
+            "flow": "train",
+            "external_id": f"s4/{label(r['cell'])}/seed={r['cell']['seed']}",
+            "params": {
+                **data,
+                **{k: v for k, v in r["cell"].items() if k != "seed"},
+                "epochs": r["final_metrics"]["epochs"],
+            },
+            "seed": r["cell"]["seed"],
+            "created_at": INPROCESS_DATE,
+            "result": {k: r[k] for k in ("final_metrics", "test_metrics", "dla_report", "seconds")},
+            # The in-process trace kept TRACE_KEYS only, streamed as `fit` would.
+            "metrics": [
+                {"name": f"train.{key}", "step": row["epoch"], "ts": ts, "value": value}
+                for row in r["trace"]
+                for key, value in row.items()
+            ],
+            "labels": ["s4", "inprocess"],
+        }
+        for r in todo
+    ]
+    for record, answer in zip(todo, client.import_runs(entries), strict=True):
+        record["run"], record["imported"] = answer["id"], True
+    path.write_text(json.dumps(done, indent=1))
+    print(f"s4: imported {len(todo)} in-process records from {filename}", flush=True)
+
+
 def label(cell: dict[str, Any]) -> str:
     """A short, stable name for a cell: only what it varies from :data:`BASE`."""
     parts = [f"{k}={v}" for k, v in cell.items() if k != "seed" and BASE.get(k) != v]
@@ -280,13 +434,26 @@ def report(out: Path) -> None:
 def main() -> None:
     """Parse arguments and run the requested block, the chart gate, or the report."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--seeds", type=int, default=3, help="smoke-first (user decision)")
-    parser.add_argument("--jobs", type=int, default=5)
+    parser.add_argument("--seeds", type=int, default=5, help="the smoke's 3, topped up (user)")
+    # Two cells at a time: what this VM's 15 GB holds with the engine's warm workers (D115).
+    parser.add_argument("--jobs", type=int, default=2)
     # 40, matching phases 4b/4c so the numbers are comparable run for run.
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--out", type=Path, default=OUT)
     parser.add_argument("--encodings", action="store_true", help="price the charts, no training")
     parser.add_argument("--gate", action="store_true", help="one worst-case cell, cost projection")
+    parser.add_argument(
+        "--fluksio",
+        nargs="?",
+        const=GENERATE_RUN,
+        metavar="GENERATE_RUN",
+        help="submit through the engine as versioned runs (default: the pinned run)",
+    )
+    parser.add_argument(
+        "--import-inprocess",
+        action="store_true",
+        help="record the in-process seeds in the engine, against --fluksio's run (D114)",
+    )
     parser.add_argument("--report", action="store_true")
     args = parser.parse_args()
 
@@ -295,6 +462,9 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     if args.report:
         report(args.out)
+        return
+    if args.import_inprocess:
+        import_inprocess("smoke.json", args.fluksio or GENERATE_RUN, out=args.out)
         return
     if args.encodings:
         table = price_encodings()
@@ -315,7 +485,11 @@ def main() -> None:
             total = good[-1] * len(cells()) * args.seeds / args.jobs / 3600
             print(f"gate: {good[-1]:.0f}s/run -> ~{total:.1f}h for the smoke grid")
         return
-    run(cells(), "smoke.json", seeds=args.seeds, jobs=args.jobs, epochs=args.epochs, out=args.out)
+    common = {"seeds": args.seeds, "jobs": args.jobs, "epochs": args.epochs, "out": args.out}
+    if args.fluksio:
+        run_fluksio(cells(), "smoke.json", args.fluksio, **common)
+    else:
+        run(cells(), "smoke.json", **common)
     report(args.out)
 
 

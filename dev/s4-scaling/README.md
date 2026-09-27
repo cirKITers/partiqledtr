@@ -37,15 +37,21 @@ What the grid tests: prediction 1 (certificate range — the variance scale span
 ~1.2e-1 to ~7e-3 across the arms), prediction 3 (the hard ladder trains at
 `n = 6`), prediction 4 (the floored control shows no purity-loss coupling — on
 this favourable chart the floor-free arms are expected to show none either,
-mirroring RESEARCH §15's `pair_polar` rows). Smoke-first: 6 cells x 3 seeds.
+mirroring RESEARCH §15's `pair_polar` rows). Smoke-first: 6 cells x 3 seeds, in
+process; topped up to 5 seeds as versioned engine runs (user, 2026-09-27): seeds
+3-4 run through the engine, seeds 0-2 are imported from the in-process records
+(D114). The engine runs two cells at a time, each over eight CPU devices (D115).
 
 ```
-python run.py --encodings   # the chart gate (no training)
-python run.py --gate        # one worst-case cell, cost projection
-python run.py               # smoke grid, 6 cells x 3 seeds
-python run.py --report      # tables + correlations
+RUNS=2 DEVICES=8 ../serve.sh      # the engine (D115)
+python run.py --encodings         # the chart gate (no training)
+python run.py --gate              # one worst-case cell, cost projection
+python run.py --import-inprocess  # the in-process seeds 0-2, into the engine
+python run.py --fluksio           # the grid, 6 cells x 5 seeds, versioned
+python run.py --report            # tables + correlations
+python summary.py                 # results/summary.csv + figures/summary.png
 ```
 
-Results land as one json per block in `results/`; the trace keys and the
-first-difference correlation analysis match s3, so the two studies read the same
-way.
+Results land as one json per block in `results/`; the trace keys, the
+first-difference correlation analysis and the summary figure match s3, so the
+two studies read the same way.
