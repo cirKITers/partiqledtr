@@ -3,8 +3,10 @@
 # there is no data-dir to pass. Concurrency comes from the flags: the data-dir `env`
 # file does not take effect for them (see NOTEPAD.md). DEVICES is the JAX CPU
 # device count per worker, over which jaqsi splits each circuit batch; keep
-# RUNS x DEVICES near the core count, and RUNS within memory (D115).
+# RUNS x DEVICES near the core count, and RUNS within memory. MAX_RSS (MB)
+# retires a warm worker that holds more when its node returns (D115).
 set -u
 cd "$(dirname "$0")/.."
 exec env JAX_PLATFORMS=cpu JAX_NUM_CPU_DEVICES="${DEVICES:-1}" uv run fluksio serve --port "${PORT:-8765}" \
-  --max-runs "${RUNS:-10}" --max-cascades "${RUNS:-10}" --max-workers "${RUNS:-10}"
+  --max-runs "${RUNS:-10}" --max-cascades "${RUNS:-10}" --max-workers "${RUNS:-10}" \
+  --worker-max-rss "${MAX_RSS:-0}"

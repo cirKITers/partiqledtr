@@ -43,13 +43,13 @@ process; topped up to 5 seeds as versioned engine runs (user, 2026-09-27): seeds
 (D114). The engine runs two cells at a time, each over eight CPU devices (D115).
 
 ```
-RUNS=2 DEVICES=8 ../serve.sh      # the engine (D115)
-python run.py --encodings         # the chart gate (no training)
-python run.py --gate              # one worst-case cell, cost projection
-python run.py --import-inprocess  # the in-process seeds 0-2, into the engine
-python run.py --fluksio           # the grid, 6 cells x 5 seeds, versioned
-python run.py --report            # tables + correlations
-python summary.py                 # results/summary.csv + figures/summary.png
+RUNS=2 DEVICES=8 MAX_RSS=2048 ../serve.sh  # the engine (D115)
+python run.py --encodings                  # the chart gate (no training)
+python run.py --gate                       # one worst-case cell, cost projection
+python run.py --import-inprocess           # the in-process seeds 0-2, into the engine
+python run.py --fluksio                    # the grid, 6 cells x 5 seeds, versioned
+python run.py --report                     # tables + correlations
+python summary.py                          # results/summary.csv + figures/summary.png
 ```
 
 Results land as one json per block in `results/`; the trace keys, the
