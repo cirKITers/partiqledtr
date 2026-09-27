@@ -475,7 +475,7 @@ wheels = [
 [[package]]
 name = "fluksio"
 version = "0.1.5+dev"
-source = { git = "https://git.stroblme.de/Fluksio/app?subdirectory=backend&rev=cc4091166ec4e537d26cea75c57bead9d9dcd06c#cc4091166ec4e537d26cea75c57bead9d9dcd06c" }
+source = { git = "https://git.stroblme.de/Fluksio/app?subdirectory=backend&rev=dafdcb76c4b4d04bc3f217c46228a5bcb3f63c40#dafdcb76c4b4d04bc3f217c46228a5bcb3f63c40" }
 dependencies = [
     { name = "alembic" },
     { name = "croniter" },
@@ -505,7 +505,7 @@ dependencies = [
 [[package]]
 name = "fluksio-worker"
 version = "0.1.5+dev"
-source = { git = "https://git.stroblme.de/Fluksio/app?subdirectory=worker&rev=cc4091166ec4e537d26cea75c57bead9d9dcd06c#cc4091166ec4e537d26cea75c57bead9d9dcd06c" }
+source = { git = "https://git.stroblme.de/Fluksio/app?subdirectory=worker&rev=dafdcb76c4b4d04bc3f217c46228a5bcb3f63c40#dafdcb76c4b4d04bc3f217c46228a5bcb3f63c40" }
 dependencies = [
     { name = "websockets" },
 ]
@@ -1100,7 +1100,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "flax", specifier = ">=0.12.9" },
-    { name = "fluksio", git = "https://git.stroblme.de/Fluksio/app?subdirectory=backend&rev=cc4091166ec4e537d26cea75c57bead9d9dcd06c" },
+    { name = "fluksio", git = "https://git.stroblme.de/Fluksio/app?subdirectory=backend&rev=dafdcb76c4b4d04bc3f217c46228a5bcb3f63c40" },
     { name = "jaqsi", git = "https://github.com/cirKITers/jaqsi?rev=8d703e697e3144fea09c83a9bbbf5294737fadd5" },
     { name = "matplotlib", specifier = ">=3.9" },
     { name = "numpy", specifier = ">=2.3" },
