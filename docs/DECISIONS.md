@@ -1229,3 +1229,58 @@ renders shims for all six nodes), and an overfit smoke test drives the GNN to
   float ports with the flow-level contract "non-positive means share `lr`" --
   to revert once fluksio can register a null-initial input. The engine runs
   detached (`dev/serve.sh`, parented to init) with the store at `./.fluksio`.
+
+- **D114 `[user]` s4 goes to five seeds as versioned runs: seeds 3-4 run
+  through the engine, seeds 0-2 are imported.** (User, 2026-09-27.) The s4 grid
+  ran in process before D113 (6 cells x 3 seeds). The top-up submits seeds 3-4
+  as `train` runs; the three in-process seeds are recorded with fluksio's run
+  import (`run.py --import-inprocess`), which stores each as `cause="import"`
+  with no commit or code digest -- versioned as what it is, not as a run of
+  today's code -- and completes its params like a submission, so an imported
+  cell shares its params digest with its native siblings. The in-process
+  records carry durations but no timestamps; the import stamps the day the grid
+  landed (2026-09-02). Re-running all 30 on one stack was the alternative.
+
+  The seeds span two simulator stacks: 0-2 ran on qml-essentials 4314e2a's
+  built-in simulator, 3-4 on qml-essentials 0.3.0 with jaqsi. Checked before
+  mixing them: the new stack reproduces the recorded first epoch of seed 0 to
+  float32 rounding on all six cells through the engine (losses within 2e-8),
+  and in process on one device and split over four alike. Forty epochs of
+  rounding need not stay bit-identical, so `summary.csv` keeps the source of
+  every run.
+
+  qml-essentials 0.3.0 moved its simulator into jaqsi and dropped
+  `qml_essentials.operations`; the two imports that used it now come from
+  jaqsi, reached through qml-essentials' own dependency on it rather than
+  declared a second time (user).
+
+- **D115 The engine splits each circuit batch over CPU devices; concurrency is
+  memory-bound.** Measured on this VM (16 vCPUs, 15 GB) on the worst-case s4
+  cell (`XY_OddChord` x mlp), per train step:
+
+  | configuration | s/step | note |
+  | --- | --- | --- |
+  | one run, all cores | 0.57 | ~0.9 h per 40 epochs; 4.1 h was recorded on the old stack and host |
+  | one run on 1 / 4 / 8 cores | 2.34 / 0.98 / 0.71 | XLA threading barely scales |
+  | D103's `XLA_FLAGS` | 0.56 | no effect on jax 0.11 |
+  | one run, 4 CPU devices, jaqsi split | 0.23 | jaqsi fix of 2026-09-27 |
+  | 4 runs at once, 1 / 4 devices each | 1.09 / 0.73 | 2.2 / 3.5 runs per hour |
+  | 2 runs at once, 4 / 8 devices each | 0.39 / 0.33 | 3.2 / 3.8 runs per hour |
+
+  D103's thread caps are void now: XLA ignores the `XLA_FLAGS` pair and
+  fluksio's `OMP_NUM_THREADS` never reaches it; only CPU affinity would bound
+  XLA's pool. What pays is jaqsi's data-parallel split of each circuit batch
+  over JAX CPU devices, once its threshold counts the batch rather than the
+  sample (a 6-qubit s4 step holds `2**18` amplitudes); sixteen devices for one
+  run lose the gain again (0.54 s).
+
+  Memory decides the rest. A cell peaks at ~3 GB, in the end-of-run
+  instrumentation, and fluksio keeps its workers warm: a finished fit worker
+  holds 2.5-3 GB and a shared-pool worker (evaluate, certificate, whitening)
+  1.3-1.8 GB, and `--max-workers` sizes both pools. Three runs at once came to
+  13 GB of 15 in the engine smoke; two stay near 10. So the engine runs with
+  `RUNS=2 DEVICES=8 dev/serve.sh` (`DEVICES` sets `JAX_NUM_CPU_DEVICES` for
+  every worker, default 1) and the s4 driver with `--jobs 2`. The device count
+  is a machine setting, so it lives in the launcher rather than on the `fit`
+  node. Setting jaqsi's `CACHE_BYTES` to the real per-core L3 share, as its
+  docs suggest for VMs, made the step 1.5x slower and is left at the default.
