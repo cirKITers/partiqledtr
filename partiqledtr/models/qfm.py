@@ -36,12 +36,12 @@ import functools
 from collections.abc import Callable
 from typing import Any
 
+import jaqsi
 import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import nnx
 from jax.typing import ArrayLike
-from qml_essentials import operations as op
 from qml_essentials.ansaetze import Encoding
 from qml_essentials.model import Model
 
@@ -202,7 +202,7 @@ def readout_bonds(ansatz: str, n_qubits: int = N_QUBITS) -> tuple[tuple[int, int
     return tuple(sorted((min(bond), max(bond)) for bond in bonds(ansatz, n_qubits)))
 
 
-def readout_observables(ansatz: str, n_qubits: int = N_QUBITS) -> list[op.Operation]:
+def readout_observables(ansatz: str, n_qubits: int = N_QUBITS) -> list[jaqsi.Operation]:
     """The in-algebra readout: ``X_j X_k`` and ``Y_j Y_k`` per coupling bond.
 
     The unflattening variance law ``Var = P_g(rho) P_g(O) / dim g`` needs the
@@ -223,8 +223,8 @@ def readout_observables(ansatz: str, n_qubits: int = N_QUBITS) -> list[op.Operat
     """
     observables = []
     for j, k in readout_bonds(ansatz, n_qubits):
-        observables.append(op.PauliX(wires=j) @ op.PauliX(wires=k))
-        observables.append(op.PauliY(wires=j) @ op.PauliY(wires=k))
+        observables.append(jaqsi.PauliX(wires=j) @ jaqsi.PauliX(wires=k))
+        observables.append(jaqsi.PauliY(wires=j) @ jaqsi.PauliY(wires=k))
     return observables
 
 
