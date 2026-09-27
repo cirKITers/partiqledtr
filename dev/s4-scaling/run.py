@@ -1,0 +1,323 @@
+"""ROADMAP phase 6: the graph trichotomy at ``n = 6`` on a kinematics-informed chart.
+
+Three graph arms over the same intra-particle chains -- the even cycle (poly
+floor-free), the 3-rung ladder (encoded-universal floor-free) and the odd-chord
+control (floored) -- crossed with {none, mlp}, at the phase-4c configuration
+(K=4, ``lr_qfm=1e-2``). The clustered ``legacy`` axis is dropped from this study
+(user decision 2026-08-31), so the annihilation prediction is deferred; what this
+grid tests is the certificate-range and hardness predictions (ROADMAP phase 6,
+predictions 1, 3, 4) with the preconditioner axis kept for the distribution effect.
+
+The third per-particle angle is the chart the ``--encodings`` block picks: the
+three ``pair_polar_*`` candidates are priced in g-purity on real kinematics
+*before any training*, and the grid runs the chart whose induced angle law sits
+at or above ``mu_n`` on the floor-free arms (the phase-4b gate, D97).
+
+Runs in process against the splits ``dev/s2-expressivity/data`` exported from
+generate run ``1787760161002-8bde9189`` -- the same data as s2/s3, deliberately,
+so the register and chart are the only things that moved between the studies.
+
+    python dev/s4-scaling/run.py --encodings   # price the three charts, no training
+    python dev/s4-scaling/run.py --gate        # one worst-case cell, cost projection
+    python dev/s4-scaling/run.py               # the smoke grid (6 cells x 3 seeds)
+    python dev/s4-scaling/run.py --report      # tables + correlations
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import time
+import traceback
+from concurrent.futures import ProcessPoolExecutor
+from pathlib import Path
+from typing import Any
+
+STUDY = Path(__file__).resolve().parent
+#: The s2 export of the pinned generate run, reused unchanged (module docstring).
+DATA = STUDY.parent / "s2-expressivity" / "data"
+OUT = STUDY / "results"
+
+#: The chart the grid encodes, set by the ``--encodings`` gate (results/encoding.json).
+CHART = "pair_polar_boost"
+
+ARMS = ("XY_Cycle", "XY_Ladder", "XY_OddChord")
+
+BASE: dict[str, Any] = {
+    "model": "qfm",
+    "n_qubits": 6,
+    "n_channels": 4,
+    "lr_qfm": 1e-2,
+    "encoding": "cartesian",
+    "angle_map": CHART,
+}
+
+#: Trace keys kept per epoch, matching s3 so the correlation analysis carries over.
+TRACE_KEYS = ("epoch", "train_loss", "val_loss", "g_purity", "tv_uniform", "mean_sin2")
+
+
+def cells() -> list[dict[str, Any]]:
+    """The smoke grid: three graph arms x {none, mlp} on the gated chart."""
+    return [{**BASE, "ansatz": arm, "preconditioner": f} for arm in ARMS for f in ("none", "mlp")]
+
+
+def gate_cell() -> list[dict[str, Any]]:
+    """The cost-gate cell: the largest closure (1020 words) with the preconditioner."""
+    return [{**BASE, "ansatz": "XY_OddChord", "preconditioner": "mlp"}]
+
+
+def price_encodings(n_pairs: int = 4096, seed: int = 0) -> dict[str, Any]:
+    """Price the three-angle charts in g-purity on real kinematics, per arm.
+
+    The phase-6 gate: mean purity of the induced angle law over sampled real
+    edges, against each floor-free arm's own basis and its uniform-prior mean.
+    ``W = I`` (hamming-diagonal), the study's encoding-weight regime.
+    """
+    import jax.numpy as jnp
+    import numpy as np
+
+    from partiqledtr.analysis import product_state_purity, uniform_prior_mean
+    from partiqledtr.data.whitening import _sample_pairs
+    from partiqledtr.models.qfm import ANGLE_MAPS
+
+    with np.load(DATA / "train.npz") as data:
+        features, n_fsps = data["features_cartesian"], data["n_fsps"]
+    events, pairs = _sample_pairs(np.random.default_rng(seed), n_fsps, n_pairs)
+
+    report: dict[str, Any] = {"n_pairs": n_pairs, "charts": {}}
+    for chart in ("pair_polar_boost", "pair_polar_mass", "pair_polar_theta"):
+        angles = ANGLE_MAPS[chart](jnp.asarray(features[events]))
+        taken = jnp.take_along_axis(angles, jnp.asarray(pairs)[:, :, None], axis=1)
+        edge = taken.reshape(n_pairs, 6)
+        arms = {}
+        for arm in ARMS:
+            mu = uniform_prior_mean(arm, 6)
+            purity = np.asarray(product_state_purity(edge, arm))
+            arms[arm] = {
+                "mean_purity": float(purity.mean()),
+                "ratio": float(purity.mean() / mu),
+                "below_threshold": float((purity < mu / 2).mean()),
+                "uniform_mean": mu,
+            }
+        report["charts"][chart] = arms
+    return report
+
+
+def load(name: str) -> dict[str, Any]:
+    """Read one exported dataset split."""
+    import numpy as np
+
+    with np.load(DATA / f"{name}.npz") as data:
+        return {key: data[key] for key in data.files}
+
+
+def one_cell(settings: dict[str, Any], epochs: int) -> dict[str, Any]:
+    """Fit one cell exactly as the ``train`` flow's nodes would (D104)."""
+    import numpy as np
+
+    from partiqledtr.analysis import dla_check
+    from partiqledtr.train import evaluate_split, train_model
+
+    started = time.monotonic()
+    seed = settings.pop("seed")
+    encoding = settings.get("encoding", "cartesian")
+    train, val, test = load("train"), load("val"), load("test")
+    meta = json.loads((DATA / "meta.json").read_text())
+
+    # The arm's algebra, recorded before the fit -- the property the flow enforces
+    # by wiring `dla_report` upstream of `fit`, kept here by doing it first. The
+    # exponential closures need the cap above dim su(2^6) = 4095.
+    certificate = dla_check(settings.get("ansatz"), n_qubits=settings["n_qubits"], max_dim=4200)
+
+    loop = train_model(train, val, meta, seed=seed, epochs=epochs, **settings)
+    trace: list[dict[str, float]] = []
+    while True:
+        try:
+            trace.append(next(loop))
+        except StopIteration as stop:
+            module, final = stop.value
+            break
+
+    group = np.asarray(meta["topology_group"])
+    known = group[test["topology_id"]] == 0
+    scores = {
+        name: evaluate_split(
+            module,
+            {key: array[selection] for key, array in test.items()},
+            encoding=encoding,
+            valid_trees=True,
+        )
+        for name, selection in (("known", known), ("unknown", ~known))
+    }
+    return {
+        "cell": {**settings, "seed": seed},
+        "final_metrics": final,
+        "test_metrics": scores,
+        "dla_report": certificate,
+        "trace": [{k: r[k] for k in TRACE_KEYS if k in r} for r in trace],
+        "seconds": round(time.monotonic() - started, 1),
+    }
+
+
+def _safe(args: tuple[dict[str, Any], int]) -> dict[str, Any]:
+    """Run a cell, returning the failure rather than killing the pool."""
+    settings, epochs = args
+    try:
+        return one_cell(dict(settings), epochs)
+    except Exception:  # a single bad cell must not cost the study
+        return {"cell": settings, "error": traceback.format_exc(limit=4)}
+
+
+def run(
+    block: list[dict[str, Any]], filename: str, *, seeds: int, jobs: int, epochs: int, out: Path
+) -> list[dict[str, Any]]:
+    """Run every cell x seed of one block, ``jobs`` at a time, saving as it goes."""
+    path = out / filename
+    done: list[dict[str, Any]] = json.loads(path.read_text()) if path.exists() else []
+    seen = {json.dumps(r["cell"], sort_keys=True) for r in done if "error" not in r}
+    work = [
+        ({**cell, "seed": seed}, epochs)
+        for cell in block
+        for seed in range(seeds)
+        if json.dumps({**cell, "seed": seed}, sort_keys=True) not in seen
+    ]
+    print(f"s4: {len(work)} to run ({len(seen)} already done), {jobs} at a time", flush=True)
+
+    with ProcessPoolExecutor(max_workers=jobs) as pool:
+        for record in pool.map(_safe, work):
+            done.append(record)
+            # Written after every cell: a driver that dies costs one run, not the study.
+            path.write_text(json.dumps(done, indent=1))
+            mark = "FAILED" if "error" in record else f"{record['seconds']:.0f}s"
+            print(f"  [{len(done)}] {mark} {label(record['cell'])}", flush=True)
+    return done
+
+
+def label(cell: dict[str, Any]) -> str:
+    """A short, stable name for a cell: only what it varies from :data:`BASE`."""
+    parts = [f"{k}={v}" for k, v in cell.items() if k != "seed" and BASE.get(k) != v]
+    return " ".join(parts) or "base"
+
+
+def correlations(trace: list[dict[str, float]]) -> dict[str, float | None]:
+    """Within-run association of the g-purity and validation-loss series.
+
+    Both raw and first-differenced: two monotone series correlate trivially, so
+    the de-trended number is the honest one and the headline. ``None`` where a
+    series is constant (the ``none`` control) -- there is nothing to correlate.
+    On the favourable chart the phase-6 expectation mirrors §15's ``pair_polar``
+    rows: coupling absent, on floored and floor-free arms alike.
+    """
+    import numpy as np
+    from scipy import stats
+
+    purity = np.asarray([r["g_purity"] for r in trace])
+    loss = np.asarray([r["val_loss"] for r in trace])
+
+    def corr(kind: Any, a: np.ndarray, b: np.ndarray) -> float | None:
+        if a.std() == 0.0 or b.std() == 0.0:
+            return None
+        return float(kind(a, b).statistic)
+
+    return {
+        "pearson": corr(stats.pearsonr, purity, loss),
+        "spearman": corr(stats.spearmanr, purity, loss),
+        "pearson_diff": corr(stats.pearsonr, np.diff(purity), np.diff(loss)),
+        "spearman_diff": corr(stats.spearmanr, np.diff(purity), np.diff(loss)),
+    }
+
+
+def _stat(values: list[float | None], places: int = 2) -> str:
+    """``mean +- sd (k/n neg)`` over the runs that have a value, or ``--``."""
+    import numpy as np
+
+    clean = [v for v in values if v is not None]
+    if not clean:
+        return "--"
+    neg = sum(v < 0 for v in clean)
+    return f"{np.mean(clean):.{places}f} +- {np.std(clean):.{places}f} ({neg}/{len(clean)} neg)"
+
+
+def report(out: Path) -> None:
+    """One row per cell: task numbers, the purity trajectory, and the correlations."""
+    from partiqledtr.analysis import uniform_prior_mean
+
+    rows: dict[str, list[dict[str, Any]]] = {}
+    for path in sorted(out.glob("*.json")):
+        if path.name == "encoding.json":
+            continue
+        for record in json.loads(path.read_text()):
+            if "error" not in record:
+                rows.setdefault(label(record["cell"]), []).append(record)
+
+    print(
+        "\n| cell | n | train loss | acc known | perfect | purity/mu_n | var pred "
+        "| r(dP,dL) pearson |"
+    )
+    print("| --- | --- | --- | --- | --- | --- | --- | --- |")
+    for name, group in rows.items():
+        final = [r["final_metrics"] for r in group]
+        known = [r["test_metrics"]["known"] for r in group]
+        series = [correlations(r["trace"]) for r in group]
+        config = final[0]["config"]
+        mu = uniform_prior_mean(config["ansatz"], config["n_qubits"])
+        start = sum(f["g_purity_initial"] for f in final) / len(final) / mu
+        end = sum(f["val_g_purity"] for f in final) / len(final) / mu
+        # The variance-law scale of prediction 1: 2 P_g / dim g at the mean end purity.
+        dim_g = group[0]["dla_report"]["dim_g"]
+        var = 2.0 * end * mu / dim_g
+        print(
+            f"| {name} | {len(group)} "
+            f"| {sum(f['train_loss'] for f in final) / len(final):.4f} "
+            f"| {sum(t['accuracy'] for t in known) / len(known):.3f} "
+            f"| {sum(t['perfect'] for t in known) / len(known):.3f} "
+            f"| {start:.2f} -> {end:.2f} "
+            f"| {var:.1e} "
+            f"| {_stat([s['pearson_diff'] for s in series])} |"
+        )
+
+
+def main() -> None:
+    """Parse arguments and run the requested block, the chart gate, or the report."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--seeds", type=int, default=3, help="smoke-first (user decision)")
+    parser.add_argument("--jobs", type=int, default=5)
+    # 40, matching phases 4b/4c so the numbers are comparable run for run.
+    parser.add_argument("--epochs", type=int, default=40)
+    parser.add_argument("--out", type=Path, default=OUT)
+    parser.add_argument("--encodings", action="store_true", help="price the charts, no training")
+    parser.add_argument("--gate", action="store_true", help="one worst-case cell, cost projection")
+    parser.add_argument("--report", action="store_true")
+    args = parser.parse_args()
+
+    if not DATA.exists():
+        raise SystemExit(f"{DATA} missing; export the pinned generate run first (s2 README)")
+    args.out.mkdir(parents=True, exist_ok=True)
+    if args.report:
+        report(args.out)
+        return
+    if args.encodings:
+        table = price_encodings()
+        (args.out / "encoding.json").write_text(json.dumps(table, indent=1))
+        print("| chart | arm | purity | /mu_n | below mu_n/2 |")
+        print("| --- | --- | --- | --- | --- |")
+        for chart, arms in table["charts"].items():
+            for arm, row in arms.items():
+                print(
+                    f"| {chart} | {arm} | {row['mean_purity']:.3f} "
+                    f"| {row['ratio']:.2f} | {row['below_threshold']:.0%} |"
+                )
+        return
+    if args.gate:
+        done = run(gate_cell(), "gate.json", seeds=1, jobs=1, epochs=args.epochs, out=args.out)
+        good = [r["seconds"] for r in done if "seconds" in r]
+        if good:
+            total = good[-1] * len(cells()) * args.seeds / args.jobs / 3600
+            print(f"gate: {good[-1]:.0f}s/run -> ~{total:.1f}h for the smoke grid")
+        return
+    run(cells(), "smoke.json", seeds=args.seeds, jobs=args.jobs, epochs=args.epochs, out=args.out)
+    report(args.out)
+
+
+if __name__ == "__main__":
+    main()
