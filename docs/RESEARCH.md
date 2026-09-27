@@ -1147,6 +1147,59 @@ parameters than linear (priced by the elu control on the cycle only); one
 encoding, one dataset; and these runs pre-date D113, so they are the last
 unversioned records -- confirmation seeds should go through the engine.
 
+## 20. Phase 6 at five seeds, versioned: §16 holds, and two directions become results
+
+The s4 grid topped up from three seeds to five (D114): seeds 3-4 as `train` runs
+of commit 60c6778 through the engine, seeds 0-2 the §16 in-process records,
+imported (`cause=import`). Same configuration, data and 40 epochs as §16;
+`results/smoke.json`, `results/summary.csv`, `figures/summary.png`. The new
+stack (qml-essentials 0.3.0 on jaqsi) reproduces the old one's first epoch on
+all six cells to float32 rounding, and per cell the two seed groups differ by
+-0.008 to +0.011 accuracy in both directions (mean +0.003), inside the seed
+spread -- no stack offset. A cell now takes 28-42 min on eight CPU devices
+(D115) against 6-8 h in process.
+
+| arm | `dim_g` | acc `none` | acc `mlp` | mlp - none, paired | perfect n/m | purity/mu_n (mlp) | r(dP,dL) (mlp) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `XY_Cycle` | 60 | 0.552 +- .009 | 0.562 +- .007 | +0.010 (3/5 pos) | .156/.156 | 1.89 -> 1.60 | +0.20 (1/5 neg) |
+| `XY_Ladder` | 510 | 0.562 +- .005 | 0.578 +- .010 | **+0.016 (5/5 pos)** | .156/.158 | 1.45 -> 1.32 | +0.35 (0/5 neg) |
+| `XY_OddChord` | 1020 | 0.577 +- .007 | **0.589 +- .011** | +0.013 (3/5 pos) | .158/.163 | 1.13 -> 1.06 | +0.36 (0/5 neg) |
+
+Four readings, in decreasing order of confidence:
+
+1. **§16 holds.** Every cell mean moved by at most 0.005 (cycle -0.003/+0.002,
+   ladder +0.004/+0.005, odd-chord +0.005/-0.002 for none/mlp); the register's
+   gain over §15's `n = 4` `pair_polar` rows (0.499-0.521) is untouched, and
+   unknown-topology accuracy stays at 0.404-0.421.
+2. **The ranking tension is now a significant correlation.** Known accuracy
+   rises with `dim_g` over the 15 runs of each preconditioner setting
+   (Spearman 0.81 `none`, 0.74 `mlp`, p <= 0.002), so it falls with the
+   predicted variance scale (1.2e-1 -> 3.2e-2). Same capacity confound as §16
+   (628 -> 948 parameters through the bond readout), and §19 already traced
+   most of the floored arm's lead to the linear node update.
+3. **The preconditioner's small gain is a result, and it is not the
+   mechanism.** Paired by seed (same model init, D84), mlp - none is +0.013
+   accuracy pooled over the arms, 11/15 positive (t-test p = 0.002, Wilcoxon
+   p = 0.005); per arm only the ladder clears on its own (+0.016, 5/5,
+   p = 0.016). Perfect-LCAG does not move (+0.003, 8/15). On this chart the
+   mlp *contracts* purity toward `mu_n` and the purity-loss channel is silent
+   (reading 4), so the gain cannot be credited to the unflattening rescue --
+   §19's caution about the floored arm applies to all three arms here.
+4. **No coupling on the favourable chart**, as §16 read it: r(dP,dL) is
+   positive on 14/15 mlp runs. Correction to §16: its "0/9 negative" was 1/9
+   (one cycle seed at -0.31, the same record); the reading stands.
+
+Against s5, the §19 siren lifts at `none` restated on the five-seed linear
+baselines: cycle +0.035, ladder +0.040, odd-chord +0.001 (§19: +0.032/+0.044/
++0.006) -- the floor-free-specific reading is unchanged; at `mlp` they are
++0.024/+0.017/+0.018.
+
+Caveats: validation loss bottoms out near epoch 10 (2-26 across runs) and
+rises by 0.02-0.05 until epoch 40 in every cell while the training loss keeps
+falling; accuracy is read at epoch 40, as in §15-§19, so the comparisons hold
+but the absolute numbers are not early-stopped. Two simulator stacks among the
+seeds (checked above); one dataset; capacity confounded with algebra.
+
 ## Open questions this raises
 
 1. Does the §1 result survive at full dataset scale? It is the load-bearing

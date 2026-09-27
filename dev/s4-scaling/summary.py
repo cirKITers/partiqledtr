@@ -1,4 +1,4 @@
-"""The one-figure summary of the phase-6 grid, drawn the way s3's is.
+"""The one-figure summary of the phase-6 grid (RESEARCH §20), drawn the way s3's is.
 
 Four panels over the three graph arms: (a) the g-purity trajectory, (b) the
 validation loss alongside it, (c) the per-epoch purity-loss coupling of the
@@ -86,7 +86,8 @@ def export() -> None:
             rows.append(
                 {
                     **base,
-                    "epoch": t["epoch"] + 1,
+                    # int: the engine streams every port as a float.
+                    "epoch": int(t["epoch"]) + 1,
                     "g_purity_over_mu": f"{t['g_purity'] / mu:.5f}",
                     "val_loss": f"{t['val_loss']:.5f}",
                 }
@@ -155,12 +156,12 @@ def plot() -> None:
     # Below the line: every arm starts at or above it on this chart (D111).
     pur.axhline(1.0, color="black", ls=":", lw=0.8)
     pur.text(0.5, 0.98, r"uniform-prior mean $\mu_n$", ha="left", va="top", fontsize=8)
-    pur.set_ylim(bottom=0.9)
+    pur.set_ylim(0.9, 2.45)  # headroom for the legend
     pur.set_ylabel(r"g-purity / $\mu_n$")
-    pur.set_title("(a) g-purity of the encoded law", fontsize=10, loc="left")
+    pur.set_title(r"(a) the preconditioner contracts toward $\mu_n$", fontsize=10, loc="left")
     pur.legend(fontsize=7, frameon=False, ncol=2, loc="upper right")
     loss.set_ylabel("validation loss")
-    loss.set_title("(b) the loss alongside", fontsize=10, loc="left")
+    loss.set_title("(b) validation loss bottoms out near epoch 10", fontsize=10, loc="left")
     for ax in (pur, loss):
         ax.set_xlabel("epoch")
 
@@ -175,7 +176,7 @@ def plot() -> None:
     corr.axhline(0.0, color="black", ls=":", lw=0.8)
     corr.set_xticks(range(len(ARMS)), [NAME[a] for a in ARMS], fontsize=8)
     corr.set_ylabel(r"Pearson $r(\Delta P_{\mathfrak{g}}, \Delta L)$")
-    corr.set_title("(c) purity-loss coupling (MLP runs)", fontsize=10, loc="left")
+    corr.set_title("(c) no purity-loss coupling here (MLP runs)", fontsize=10, loc="left")
     corr.set_xlim(-0.5, len(ARMS) - 0.5)
 
     # (d): accuracy, raw -> mlp per arm.
@@ -201,7 +202,9 @@ def plot() -> None:
         )
     acc.set_xticks(ticks, labels, fontsize=8)
     acc.set_ylabel("test accuracy (known topologies)")
-    acc.set_title(r"(d) accuracy by arm ($\dim\mathfrak{g}$)", fontsize=10, loc="left")
+    acc.set_title(
+        r"(d) accuracy rises with $\dim\mathfrak{g}$; MLP adds ~0.01", fontsize=10, loc="left"
+    )
     acc.set_xlim(-0.5, 1.6 * (len(ARMS) - 1) + 1.1)
 
     for ax in axes.ravel():

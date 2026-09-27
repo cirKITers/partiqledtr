@@ -339,7 +339,10 @@ Pauli-propagation estimators and RFF surrogates exist regardless (`LITERATURE.md
    pays on every cell (+0.04-0.07 accuracy over the §15 `pair_polar` rows; best
    0.591 +- 0.012), the hard ladder trains at its capped variance, the certificate
    spread doubled and stays anti-correlated with accuracy, and the coupling channel
-   is silent on the favourable chart. Top-up to 5 seeds awaits review.
+   is silent on the favourable chart. **Topped up to 5 seeds as versioned runs
+   (2026-09-27, §20):** the readings hold; the accuracy-`dim_g` ranking is now
+   significant and the mlp's small gain real (+0.013 paired, 11/15), but not the
+   purity mechanism.
 
 **Trig-interface program (user direction, 2026-09-02; D112, `dev/s5-trig-nodes/`).**
 The quantum arm's classical parts were purely linear; the node update is now an axis
