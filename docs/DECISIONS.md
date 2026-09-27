@@ -1155,3 +1155,77 @@ renders shims for all six nodes), and an overfit smoke test drives the GNN to
   softmax cross-entropy of the head output is not a trigonometric polynomial at
   all. Only an approximate 3-point variant would apply, at ~3x the evaluation
   cost per update for 144 shared parameters.
+
+- **D110 The register is a parameter (`n_qubits`), and the phase-6 graph arms are
+  a separate registry.** ROADMAP phase 6: `n_qubits` threads from
+  `train_model`/`build_model` into the constellation, the masks, the readout and
+  the checkpoint config (old checkpoints rebuild at the default 4). The angle
+  maps declare their width (`ANGLE_WIDTHS`) and the constellation enforces
+  `n_qubits == 2 * width` at construction, so a map/register mismatch fails
+  before a jitted reshape can. `preconditioner_features` became a static method
+  of the register for the same reason. The three `n = 6` arms (`XY_Cycle`,
+  `XY_Ladder`, `XY_OddChord`, built on qml-essentials' new `Topology.graph`)
+  live in `ANSAETZE_N6` rather than `ANSAETZE`: the phase-4b surfaces that
+  iterate `ANSAETZE` at `n = 4` (`arm_report`, the parametrised tests) keep
+  their meaning, and the arms themselves are explicit edge lists pinned to six
+  qubits -- any other register raises, because the same list at `n > 6` would
+  silently be a different graph and the certificates would lie. Certificates,
+  measured: cycle 60/0, ladder 510/0, odd-chord 1020/30 (`dim_g`/`d_Z`), all
+  invariant under the endpoint swap `pi = (0 3)(1 4)(2 5)`.
+
+- **D111 `[user]` The s4 chart is `pair_polar_boost`, gated by the encoding
+  report; the clustered `legacy` axis is dropped from s4.** The third
+  per-particle angle was picked by the phase-4b discipline, not by tuning: the
+  three candidates priced in g-purity on real kinematics before any training
+  (`dev/s4-scaling/results/encoding.json`). `atan2(|p|, m)` wins at 1.87/1.43
+  `mu_n` on the floor-free arms with 0% of edges below threshold;
+  `atan2(p_T, p_z)` follows at 1.56/1.30; even `atan2(m, E)` sits at ~1.0 --
+  the FSPs are not relativistic enough to cluster any chart, so this dataset
+  offers no clustered three-angle arm. On normalised features the mass proxy is
+  a deformed invariant (momenta and energy carry different scales, the same
+  caveat that already widens `alpha`); the report prices the result, which is
+  the decision criterion. Dropping `legacy` (user, 2026-08-31) defers the
+  phase-6 annihilation/rescue prediction; the smoke grid tests the certificate
+  -range, hardness and specificity predictions at 3 arms x {none, mlp} x 3
+  seeds, smoke-first.
+
+- **D112 `[user]` The node update is an axis (`node_update`), the re-encoding
+  boundary has a scale (`node_omega`), and block 2's encoded distribution is
+  instrumented.** The trig-interface program (user, 2026-09-02): the quantum
+  arm's classical parts were purely linear, so the composite was
+  trig-polynomial -> linear -> trig-polynomial -> linear with no classical
+  nonlinear capacity, and the block-2 re-encoding boundary -- a sine of a linear
+  map -- had no scale discipline (SIREN's own lever, arXiv:2006.09661; the
+  QFM-SIREN bridge is QIREN, `LITERATURE.md`). `node_update` in
+  {linear, siren, elu}: `linear` reproduces the old construction and rng draw
+  order bit-for-bit; `siren` is a two-layer sine MLP with the SIREN first-layer
+  init and `omega_0 = 30`; `elu` is the matched-parameter control that separates
+  "a nonlinearity pays" from "the trigonometric one pays". Both keep the output
+  layer linear, because the consumer re-encodes it as angles. `node_omega`
+  scales the node state before block 2 encodes it (default 1.0, bit-identical);
+  it applies inside `_node_state`, so the diagnostic and the circuit see the
+  same thing. `block2_encoded_angles`/`block2_g_purity`/`block2_angle_stats`
+  mirror the block-1 instrumentation one block deeper and land in
+  `final_metrics` only -- the flow's declared stream ports are untouched. The
+  init-time diagnostic then *falsified* the collapse hypothesis that motivated
+  `node_omega` (block 2 starts at 0.92 mu_n, the uniform level), so the scale is
+  a probe axis rather than a fix; `RESEARCH.md` §17 has both gate measurements.
+
+- **D113 `[user]` Studies run versioned through the Fluksio engine; in-process
+  drivers are the sandbox path.** (User, 2026-09-03.) The s3-s5 drivers ran
+  `train_model` in process, so their cells carried no run id, commit stamp,
+  params digest or streamed metrics -- the phase-4c/6 results are reproducible
+  from the JSON records but not *versioned*. From the next experiment on, every
+  study cell is one run of the `train` flow: the flow now carries every study
+  axis (`n_channels` D108, `lr_preconditioner`/`lr_qfm` D109, `n_qubits` D110,
+  `node_update`/`node_hidden`/`node_omega` D112), `dla_report` takes the
+  register, and the s2 `run_arm_fluksio` pattern is the driver template --
+  extended in s5 with `_trace`, which reassembles the per-epoch series from the
+  run's streamed metrics so the correlation analysis needs no second code path.
+  Verified end to end on two versioned smoke runs (gnn, and qfm at n=6 with
+  siren + `lr_qfm`), certificates and configs intact. One fluksio limitation
+  surfaced and is flagged rather than worked around (NOTEPAD.md 2026-09-03):
+  nullable flow inputs are not expressible, so the two lr overrides ride as
+  float ports with the flow-level contract "non-positive means share `lr`" --
+  to revert once fluksio can register a null-initial input. The engine runs
+  detached (`dev/serve.sh`, parented to init) with the store at `./.fluksio`.

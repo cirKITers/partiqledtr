@@ -146,9 +146,13 @@ def test_overfits_a_tiny_batch(capsys):
         "ansatz": "XY_Brickwork",
         "n_layers": 2,
         "n_channels": 1,
+        "n_qubits": 4,
         "angle_map": "pair_polar",
         "enc_weights": "hamming",
         "enc_reupload": "diagonal",
+        "node_update": "linear",
+        "node_hidden": 32,
+        "node_omega": 1.0,
         # Carried in the config, not beside it, so `evaluate` rebuilds the arm it
         # scored rather than silently dropping the rotation (D81).
         "whitening": None,

@@ -988,6 +988,165 @@ tracks (D109), the preconditioner's distribution movement is coupled to the
 loss and buys a real, modest task gain exactly on the cells where the theory
 says the input distribution is decisive -- and nowhere else.
 
+## 16. Phase 6 smoke: the register pays, and the ranking tension survives scaling
+
+The s4 smoke grid (`dev/s4-scaling/`): the three `n = 6` graph arms x {none, mlp}
+on the gated `pair_polar_boost` chart (D110, D111), at the §14 configuration
+(K=4, `lr_qfm` 1e-2), 40 epochs, 3 seeds, same data as s2/s3. Certificates
+recorded per run; ~5-8 h per run at 5 concurrent jobs (4.1 h solo).
+
+| arm | `dim_g` | `d_Z` | params | acc `none` | acc `mlp` | perfect n/m | Var pred |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `XY_Cycle` | 60 | 0 | 628/772 | 0.555 +- .009 | 0.560 +- .003 | .156/.157 | 1.2e-1 |
+| `XY_Ladder` | 510 | 0 | 740/884 | 0.558 +- .001 | 0.573 +- .011 | .160/.164 | 3.5e-2 |
+| `XY_OddChord` | 1020 | 30 | 804/948 | 0.572 +- .005 | **0.591 +- .012** | .160/**.167** | 3.2e-2 |
+
+Four readings:
+
+1. **The register pays, everywhere.** Every cell beats every same-family `n = 4`
+   cell: §15's `pair_polar` rows sit at 0.499-0.521 / 0.134-0.142, these at
+   0.555-0.591 / 0.156-0.167 -- +0.04-0.07 accuracy and +0.02-0.03 Perfect-LCAG
+   from two more qubits and the boost chart. The best cell (0.591 +- 0.012)
+   passes the previous project best (0.563 +- 0.011, §15). Unknown-topology
+   accuracy stays at 0.395-0.415: the register does not touch generalisation.
+2. **The hard arm trains (prediction 3, confirmed).** The encoded-universal
+   ladder descends and lands mid-table (0.573 mlp) at its capped predicted
+   variance 3.5e-2, within a factor four of the poly cycle's 1.2e-1. Hardness
+   moved the attainable scale, not trainability -- the manuscript's hard-family
+   row, run on a task at moderate `n`.
+3. **The certificate range grew and the ranking tension survived (predictions
+   1, 4).** The predicted-variance spread doubled from 1.85x (`n = 4`, §11) to
+   3.75x -- and accuracy is again *anti*-correlated with it: the two
+   low-variance arms lead, the high-variance poly cycle trails. §11's "safety
+   criterion, not selection criterion" carries to `n = 6` unweakened, with the
+   same capacity confound (params 628 -> 948 track `dim_g` through the bond
+   readout).
+4. **On the favourable chart the coupling channel is silent, as §15 predicts.**
+   Purities start at 1.13-1.89 `mu_n` (the boost chart's doing, D111), the
+   preconditioner contracts them toward `mu_n` (1.89 -> 1.68 on the cycle), and
+   no mlp seed shows a negative purity-loss diff-correlation (0/9 negative,
+   +0.18 to +0.36) -- the `pair_polar` behaviour of §15 at the larger register.
+   The mlp still adds a small positive accuracy delta on every arm
+   (+0.005/+0.015/+0.019), which at 3 seeds is a direction, not a result.
+
+Caveats: 3 seeds; capacity confounded with algebra across arms (§15's caveat,
+unchanged); one dataset; and the boost chart shares the pair-polar family's
+favourable-input character, so nothing here probes the distribution-decisive
+regime -- the clustered axis was deliberately left out (D111) and the
+annihilation prediction remains untested.
+
+## 17. The trig-interface gates: no collapse at the boundary, and the edge task is invariant-shaped
+
+Two measurements that need no training, gating the s5 node-update study
+(`dev/s5-trig-nodes/`, D112). Motivation: the quantum arm's classical parts are
+purely linear -- the model is trig-polynomial -> linear -> trig-polynomial ->
+linear -- and block 2 consumes the node update's output directly as RY angles,
+a boundary nothing gates the way D111 gates the block-1 charts.
+
+**The collapse hypothesis is falsified at init.** At the s4 configuration the
+block-2 encoded angles start at std 0.89 rad, ``sin^2`` 0.43, purity **0.92
+mu_n** -- the uniform level, not the clustered one -- against the gated block-1
+chart's 1.89 mu_n. ``node_omega`` moves the init purity only 0.92 -> 1.01 by
+``omega = 16``. The open half is what *training* does to that distribution;
+``block2_g_purity`` / ``block2_angle_stats`` (D112) now record start and end.
+
+**The single-edge decision is invariant-shaped, not angle-trig-shaped.** Linear
+probes on 16k sampled real edges (majority class 0.381,
+`dev/s5-trig-nodes/results/spectrum.json`): a cubic in the single pair
+invariant ``m_ij`` reaches **0.495** with four features, while integer-frequency
+trig features of the six encoded angles saturate at **0.471** by total degree 2
+-- degree 3 adds nothing, and per-feature frequencies beyond the ``L = 2`` QFM
+box (``|w_f| <= 2``) add nothing. Two consequences: the model's frequency box is
+already spectrally sufficient for the single-edge content of these angles
+(consistent with §4's "richer spectra do not help", now from the task side), and
+the missing edge-level information sits in the pair invariant -- `ALGEBRA.md`'s
+in-algebra injection question in empirical form. Scope: this bounds the *edge
+function*; message passing sees more than one edge, and the trained models'
+0.56-0.59 (§16) already exceed the single-edge probes.
+
+The four-cell training probe (linear-w1 / linear-w8 / siren / elu, matched
+parameters between the last two) ran with its reading rule registered in the
+study README before the numbers existed; §18 is the result.
+
+## 18. Trig-node probe: the sine activation pays beyond matched capacity
+
+The s5 probe (4 cells x 2 seeds, `XY_Cycle` / boost chart / K=4 / no
+preconditioner, 40 epochs), read against the pre-registered rule:
+
+| cell | params | acc known | perfect | P2/mu_n start -> end |
+| --- | --- | --- | --- | --- |
+| linear-w1 (the s4 architecture) | 628 | 0.555 +- .011 | 0.151 | 0.81 -> 1.25 |
+| linear, `node_omega` 8 | 628 | 0.530 +- .007 | 0.133 | 0.99 -> 1.16 |
+| **siren** | 1584 | **0.587 +- .007** | **0.173** | 0.58 -> 0.96 |
+| elu (matched control) | 1584 | 0.565 +- .002 | 0.154 | 0.72 -> 1.08 |
+
+1. **The trigonometric activation pays beyond capacity.** siren > elu by
+   +0.022 accuracy and +0.019 Perfect-LCAG at identical parameter counts and
+   shapes (seed ranges disjoint), while elu > linear is only +0.010 -- the
+   activation choice carries twice the capacity effect. The pre-registered rule
+   reads this as: the trigonometric coherence pays -- the classical architecture
+   matched to the trigonometric character of the model. (QIREN, `LITERATURE.md`,
+   is a framing reference -- it demonstrates QFMs on image tasks -- not a
+   mechanism this result inherits; user note 2026-09-02.)
+2. **On the floor-free cycle it nearly closes the gap to the floored best.**
+   0.587 +- .007 against s4's odd-chord x mlp 0.591 +- .012, with 60 DLA
+   dimensions against 1020. The §16 ranking tension -- the floored arm leads --
+   is therefore at least partly a classical-interface artefact rather than an
+   algebra ranking.
+3. **Scaling the boundary alone hurts.** `node_omega = 8` costs 0.025
+   accuracy: consistent with §17's falsified collapse hypothesis, and a second
+   instance of §10's lesson -- moving a distribution toward `mu_n` is not a
+   rescue when the raw value is already fine -- one block deeper.
+4. **Training raises the boundary purity by itself** (0.81 -> 1.25 on the
+   baseline), and the best cell sits at the *lowest* boundary purity
+   (0.58 -> 0.96): the block-2 purity level does not rank task performance,
+   echoing §6/§11 one block deeper.
+
+Replication note: linear-w1 reproduces s4's cycle-none on fresh seeds
+(0.555 +- .009 there, +- .011 here; Perfect-LCAG 0.156/0.151). Caveats: 2
+seeds, one arm, one encoding, no preconditioner interaction; the nonlinear
+cells carry 2.5x the classical parameters of linear, which is what the elu
+control prices.
+
+## 19. Siren expansion: the lift is floor-free-specific, and the ranking flips
+
+The s5 expansion (siren across the trichotomy x {none, mlp}, 2 seeds, 40
+epochs), read with the s4 linear baselines (3 seeds) against the pre-registered
+rule in the study README:
+
+| arm | linear `none` | linear `mlp` | siren `none` | siren `mlp` | siren lift (`none`) |
+| --- | --- | --- | --- | --- | --- |
+| `XY_Cycle` | 0.555 | 0.560 | 0.587 +- .007 | 0.586 +- .010 | **+0.032** |
+| `XY_Ladder` | 0.558 | 0.573 | **0.602 +- .001** | 0.595 +- .011 | **+0.044** |
+| `XY_OddChord` | 0.572 | 0.591 | 0.578 +- .002 | **0.607 +- .002** | +0.006 |
+
+1. **The lift is floor-free-specific -- the pre-registered second branch.** At
+   `none`, siren lifts the floor-free arms by +0.032/+0.044 and the floored
+   control by only +0.006. §16's "floored arm leads" ranking was therefore
+   largely an artefact of the linear classical interface, not an algebra
+   ranking: with the interface fixed, the *hard floor-free ladder* leads the
+   preconditioner-free field (0.602 +- .001), and the across-arm spread
+   compresses.
+2. **New project best: 0.607 +- .002** (`XY_OddChord` x mlp x siren), passing
+   0.591; Perfect-LCAG best is the ladder x mlp at 0.180. The quantum arm's
+   trajectory over the programme: 0.453 (phase 4b) -> 0.563 (s4) -> 0.607.
+3. **The preconditioner's role splits by algebra.** Under siren the mlp is
+   neutral-to-slightly-negative on the floor-free arms (-0.001, -0.007) --
+   partially the pre-registered "sine layer absorbs the preconditioner's role"
+   -- but strongly positive on the floored arm (+0.029, the largest mlp effect
+   measured on this chart). On a floored algebra the purity channel is closed
+   by construction, so that gain must be feature shaping or optimization, not
+   the unflattening mechanism: a caution against reading every mlp delta as
+   the theory's rescue.
+4. Block-2 purities converge toward ~1.0 `mu_n` in every cell whatever their
+   start, and neither block's purity level ranks the cells -- §18's reading,
+   now across arms.
+
+Caveats: 2 seeds against 3-seed baselines; the siren cells carry more classical
+parameters than linear (priced by the elu control on the cycle only); one
+encoding, one dataset; and these runs pre-date D113, so they are the last
+unversioned records -- confirmation seeds should go through the engine.
+
 ## Open questions this raises
 
 1. Does the §1 result survive at full dataset scale? It is the load-bearing

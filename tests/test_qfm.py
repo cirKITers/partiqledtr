@@ -55,9 +55,9 @@ def _model(**kwargs):
     return QFMConstellation(4, C, rngs=nnx.Rngs(SEED), seed=SEED, **kwargs)
 
 
-def _word(letter, wires):
+def _word(letter, wires, n=N_QUBITS):
     """The bare Pauli string with ``letter`` on ``wires`` and identity elsewhere."""
-    return "".join(letter if q in wires else "I" for q in range(N_QUBITS))
+    return "".join(letter if q in wires else "I" for q in range(n))
 
 
 @pytest.mark.parametrize(
@@ -113,6 +113,15 @@ def test_single_qubit_z_is_not_in_the_xy_algebras():
     for ansatz in ("XY_Brickwork", "XY_Ring", "XY_AllPairs"):
         words = {word.to_pauli_string() for word in dla_basis(ansatz, N_QUBITS)}
         assert not any(_word("Z", (q,)) in words for q in range(N_QUBITS))
+
+
+@pytest.mark.parametrize("ansatz", ["XY_Cycle", "XY_Ladder", "XY_OddChord"])
+def test_phase6_readout_observables_are_in_the_algebra(ansatz):
+    """The D107 premise, asserted for the phase-6 graph arms at ``n = 6``."""
+    words = {word.to_pauli_string() for word in dla_basis(ansatz, 6)}
+    for bond in readout_bonds(ansatz, 6):
+        assert _word("X", bond, 6) in words
+        assert _word("Y", bond, 6) in words
 
 
 @pytest.mark.parametrize("ansatz", ANSAETZE)
@@ -230,6 +239,81 @@ def test_pair_polar_maps_coordinate_pairs_into_the_full_circle():
 
     with pytest.raises(ValueError, match="four-vectors"):
         pair_polar(jnp.zeros((2, 3)))
+
+
+def test_three_angle_charts_extend_pair_polar():
+    """Each phase-6 chart is the pair-polar map plus one derived third angle.
+
+    On physical four-vectors (``E >= |p|``) the boost and mass charts land in
+    ``[0, pi/2]`` and the polar chart in ``[0, pi]``; at ``|p| = 0`` the mass
+    chart is exactly ``pi/4`` (``m = E``) and the boost chart exactly 0.
+    """
+    from partiqledtr.models.qfm import pair_polar_boost, pair_polar_mass, pair_polar_theta
+
+    rng = np.random.default_rng(SEED)
+    p = rng.normal(size=(50, 3))
+    energy = np.linalg.norm(p, axis=-1) + rng.uniform(0.1, 1.0, size=50)
+    p4 = jnp.asarray(np.concatenate([p, energy[:, None]], axis=-1))
+
+    for chart, high in ((pair_polar_boost, np.pi / 2), (pair_polar_mass, np.pi / 2),
+                        (pair_polar_theta, np.pi)):  # fmt: skip
+        angles = np.asarray(chart(p4))
+        assert angles.shape == (50, 3)
+        assert np.allclose(angles[:, :2], np.asarray(pair_polar(p4)))
+        assert np.all(angles[:, 2] >= 0.0) and np.all(angles[:, 2] <= high)
+
+    rest = jnp.asarray([[0.0, 0.0, 0.0, 2.0]])
+    assert np.asarray(pair_polar_mass(rest))[0, 2] == pytest.approx(np.pi / 4)
+    assert np.asarray(pair_polar_boost(rest))[0, 2] == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize("ansatz", ["XY_Cycle", "XY_Ladder", "XY_OddChord"])
+def test_phase6_constellation_runs_at_six_qubits(ansatz):
+    """Shapes, output symmetry and the map/register consistency check at n = 6."""
+    x, mask = _batch(np.random.default_rng(SEED))
+    model = _model(ansatz=ansatz, n_qubits=6, angle_map="pair_polar_boost")
+    logits = model(x, mask)
+
+    assert model.n_angles == 3
+    assert logits.shape == (*x.shape[:2], x.shape[1], C)
+    assert jnp.array_equal(logits, jnp.swapaxes(logits, 1, 2))
+
+    with pytest.raises(ValueError, match="angles per"):
+        _model(ansatz=ansatz, n_qubits=6, angle_map="pair_polar")
+
+
+def test_node_omega_scales_the_block2_encoding_linearly():
+    """The re-encoding boundary diagnostic and its lever, pinned together.
+
+    With the linear node update, ``block2_encoded_angles`` must be exactly
+    ``node_omega`` times its ``omega = 1`` value (same seed, same parameters),
+    and one row per channel and directed edge.
+    """
+    x, mask = _batch(np.random.default_rng(SEED))
+    base, scaled = _model(), _model(node_omega=8.0)
+
+    a = np.asarray(base.block2_encoded_angles(x, mask))
+    assert a.shape == (3 * 4 * 3, N_QUBITS)  # B * L * (L - 1) edges, K = 1
+    assert np.allclose(np.asarray(scaled.block2_encoded_angles(x, mask)), 8.0 * a, atol=1e-5)
+
+
+def test_node_update_arms_run_and_match_parameters():
+    """The trig-interface arm and its control: same shapes, same parameter count,
+    different activation -- so a score difference between them is the activation."""
+    x, mask = _batch(np.random.default_rng(SEED))
+    counts = {}
+    for update in ("siren", "elu"):
+        model = _model(node_update=update, node_hidden=16)
+        logits = model(x, mask)
+        assert logits.shape == (*x.shape[:2], x.shape[1], C)
+        assert jnp.array_equal(logits, jnp.swapaxes(logits, 1, 2))
+        counts[update] = n_params(model)
+    assert counts["siren"] == counts["elu"]
+
+    with pytest.raises(ValueError, match="node_update"):
+        _model(node_update="relu")
+    with pytest.raises(ValueError, match="node_omega"):
+        _model(node_omega=0.0)
 
 
 @pytest.mark.parametrize("ansatz", ANSAETZE)

@@ -85,6 +85,8 @@ docs/           the research record, and the diagram above
 ├── ROADMAP.md   the plan and the state of it
 ├── RESEARCH.md  the measurement history
 ├── FINDINGS.md  the claims
+├── LITERATURE.md candidate references for the scaling study, pending review
+├── ALGEBRA.md   open theory question: in-algebra encoding of pair invariants
 ├── DECISIONS.md why each implementation choice was made
 └── NOTEPAD.md   what the tooling cost
 tests/          run with `uv run pytest`
@@ -157,9 +159,13 @@ input and its default):
 | `enc_reupload` | `diagonal`, `cyclic` -- which features reach which qubit |
 | `dim`, `n_blocks` | ints -- GNN width/depth; use for parameter matching |
 
-**3. Sweep.** An ablation cell is one run of the same flow. The phase-4b arms are
-driven by `dev/s2-expressivity/run.py`, which submits every cell at several seeds,
-keeps a bounded number in flight and writes one JSON per arm:
+**3. Sweep.** An ablation cell is one run of the same flow, and since D113 that is
+literal: studies submit their cells through the engine (each driver's `--fluksio`
+flag), so every cell carries a run id, commit stamp, params digest and streamed
+metrics; running a driver without the flag executes the same cells in process,
+which is the sandbox path, not the record. The phase-4b arms are driven by
+`dev/s2-expressivity/run.py`, which submits every cell at several seeds, keeps a
+bounded number in flight and writes one JSON per arm:
 
 ```sh
 python dev/s2-expressivity/run.py --arm a --fluksio <generate-run-id>

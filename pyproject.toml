@@ -1,7 +1,7 @@
 [project]
 name = "partiqledtr"
 version = "0.1.0"
-description = "Particle decay tree reconstruction (LCAG) with quantum Fourier models"
+description = "Particle decay tree reconstruction with quantum Fourier models"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
@@ -9,8 +9,8 @@ dependencies = [
     "optax>=0.2.8",
     "numpy>=2.3",
     "matplotlib>=3.9",
-    "qml-essentials>=0.2.3",
-    "phasespace-jax>=2.0.0",
+    "qml-essentials",
+    "phasespace-jax",
     "fluksio",
 ]
 
@@ -21,7 +21,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.sources]
-fluksio = { git = "https://git.stroblme.de/Fluksio/app", rev = "f370601aec3b92a52f363e839e2b5797f17b13d7", subdirectory = "backend" }
+phasespace-jax = { git = "https://github.com/cirKITers/phasespace-jax", rev = "9e2954f973fd77cc1dee6a3f901c61753b359b3f"}
+fluksio = { git = "https://git.stroblme.de/Fluksio/app", rev = "cc4091166ec4e537d26cea75c57bead9d9dcd06c", subdirectory = "backend" }
+qml-essentials = { git = "https://github.com/cirKITers/qml-essentials", rev = "4314e2ab9408458dcc3404d17ff0d46b390411ab" }
 
 [dependency-groups]
 dev = ["ruff>=0.12", "ty", "pytest>=8"]

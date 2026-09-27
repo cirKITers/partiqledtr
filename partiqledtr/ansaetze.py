@@ -34,12 +34,39 @@ Bonds alone do not give equivariance, though: :math:`\pi` maps ``(0,1)`` to
 ``(2,3)``, so the two gates of that orbit must carry the *same* angle, which is
 what ``Block(shared=True)`` ties.  The span-2 gates map to themselves and need
 no tying.
+
+ROADMAP phase 6 scales the register to three qubits per particle, where the swap
+is :math:`\pi = (0\,3)(1\,4)(2\,5)` and the three graph arms share the
+intra-particle chains ``(0,1), (1,2), (3,4), (4,5)``.  Measured at ``n = 6``:
+
+    ansatz       extra bonds   dim_g/4095  d_Z  pi-invariant
+    XY_Cycle     03, 25                60    0  yes
+    XY_Ladder    03, 14, 25           510    0  yes
+    XY_OddChord  03, 25, 02, 35      1020   30  yes
+
+The cycle is even, hence bipartite, hence floor-free at a polynomial closure.
+The ladder's middle rung gives the bipartite graph a degree-3 vertex, which is
+the unflattening manuscript's encoded-universality criterion -- the hard
+floor-free arm.  The chords close odd triangles inside each particle and the
+floor returns: the floored hard control.  One rung toggles hardness, the chords
+toggle the floor.
 """
 
 from qml_essentials.ansaetze import Ansaetze, Block, DeclarativeCircuit, Gates
 from qml_essentials.topologies import Topology
 
-__all__ = ["ANSAETZE", "XY_AllPairs", "XY_Ring", "bonds", "circuit", "swap_invariant"]
+__all__ = [
+    "ANSAETZE",
+    "ANSAETZE_N6",
+    "XY_AllPairs",
+    "XY_Cycle",
+    "XY_Ladder",
+    "XY_OddChord",
+    "XY_Ring",
+    "bonds",
+    "circuit",
+    "swap_invariant",
+]
 
 
 def _xy(topology, *, shared: bool = False, **kwargs) -> tuple[Block, ...]:
@@ -85,6 +112,79 @@ class XY_AllPairs(DeclarativeCircuit):
         return _xy(Topology.all_pairs)
 
 
+def _graph6(n_qubits: int, *, edges: tuple[tuple[int, int], ...]) -> list[tuple[int, int]]:
+    """``Topology.graph`` pinned to six qubits.
+
+    The phase-6 arms are written as explicit edge lists at the study size, so at
+    any other register the same list would silently be a different graph (a
+    subgraph at ``n > 6``); failing loudly is what keeps the certificates honest.
+    """
+    if n_qubits != 6:
+        raise ValueError(f"this arm is defined at 6 qubits, got n_qubits={n_qubits}")
+    return Topology.graph(n_qubits, edges=edges)
+
+
+#: The intra-particle chains every phase-6 graph arm shares, one ``_xy`` block
+#: pair per pi-orbit: pi maps (0,1) to (3,4) and (1,2) to (4,5), so each orbit
+#: ties its angle (``shared=True``), exactly the ``XY_Ring`` mechanism.
+_CHAIN_ORBITS = (((0, 1), (3, 4)), ((1, 2), (4, 5)))
+
+
+def _chains() -> tuple[Block, ...]:
+    return tuple(
+        block for orbit in _CHAIN_ORBITS for block in _xy(_graph6, edges=orbit, shared=True)
+    )
+
+
+class XY_Cycle(DeclarativeCircuit):
+    r"""XY coupling on the even 6-cycle ``0-1-2-5-4-3-0``: poly floor-free at ``n = 6``.
+
+    The intra-particle chains plus the end rungs ``(0,3), (2,5)``.  An even cycle
+    is bipartite, so ``d_Z = 0`` (measured: ``dim_g = 60``), and the bond set is
+    :math:`\pi`-invariant with the rungs :math:`\pi`-fixed.  The phase-6 analogue
+    of ``XY_Ring``, which is this construction at ``n = 4``.
+    """
+
+    @classmethod
+    def structure(cls) -> tuple[Block, ...]:
+        """Return the chain orbits then the end rungs."""
+        return (*_chains(), *_xy(_graph6, edges=((0, 3), (2, 5))))
+
+
+class XY_Ladder(DeclarativeCircuit):
+    r"""XY coupling on the 3-rung ladder: the hard floor-free arm at ``n = 6``.
+
+    The cycle plus the middle rung ``(1,4)``, giving the bipartite graph two
+    degree-3 vertices -- the unflattening manuscript's encoded-universality
+    criterion -- while keeping ``d_Z = 0`` (measured: ``dim_g = 510``).  All
+    rungs are :math:`\pi`-fixed.
+    """
+
+    @classmethod
+    def structure(cls) -> tuple[Block, ...]:
+        """Return the chain orbits then all three rungs."""
+        return (*_chains(), *_xy(_graph6, edges=((0, 3), (1, 4), (2, 5))))
+
+
+class XY_OddChord(DeclarativeCircuit):
+    r"""XY coupling on the cycle plus intra-particle chords: the floored hard control.
+
+    The chords ``(0,2), (3,5)`` close one odd triangle inside each particle, and
+    the floor returns exactly as the manuscript's odd-cycle rule predicts
+    (measured: ``dim_g = 1020``, ``d_Z = 30``).  :math:`\pi` exchanges the two
+    chords, so their orbit ties its angle like the chain orbits.
+    """
+
+    @classmethod
+    def structure(cls) -> tuple[Block, ...]:
+        """Return the chain orbits, the end rungs, then the tied chord orbit."""
+        return (
+            *_chains(),
+            *_xy(_graph6, edges=((0, 3), (2, 5))),
+            *_xy(_graph6, edges=((0, 2), (3, 5)), shared=True),
+        )
+
+
 #: Ansatz arms, name -> circuit class.  ``Model`` takes either a name it knows or
 #: a class, so a project arm needs no fork of qml-essentials.  ``XY_Brickwork`` is
 #: kept as the phase-3/4 continuity control and ``Circuit_19`` as the universal
@@ -97,14 +197,24 @@ ANSAETZE: dict[str, type[DeclarativeCircuit]] = {
     "Circuit_19": Ansaetze.Circuit_19,
 }
 
+#: The phase-6 graph arms, defined at ``n = 6`` only.  A separate registry so the
+#: phase-4b surfaces that iterate :data:`ANSAETZE` at ``n = 4`` (``arm_report``,
+#: the parametrised tests) keep their meaning; :func:`circuit` resolves both.
+ANSAETZE_N6: dict[str, type[DeclarativeCircuit]] = {
+    "XY_Cycle": XY_Cycle,
+    "XY_Ladder": XY_Ladder,
+    "XY_OddChord": XY_OddChord,
+}
+
 
 def circuit(name: str) -> type[DeclarativeCircuit]:
     """Resolve an ansatz name to its circuit class.
 
-    A phase-4b arm from :data:`ANSAETZE` first, then any ansatz qml-essentials
-    ships.  The split is what "retired" means here: ``Matchgate`` is no longer a
-    reported arm but stays certifiable and runnable, so the phase-4 cells of
-    ``RESEARCH.md`` §7 remain reproducible.
+    A phase-4b arm from :data:`ANSAETZE` first, then a phase-6 arm from
+    :data:`ANSAETZE_N6`, then any ansatz qml-essentials ships.  The split is what
+    "retired" means here: ``Matchgate`` is no longer a reported arm but stays
+    certifiable and runnable, so the phase-4 cells of ``RESEARCH.md`` §7 remain
+    reproducible.
 
     Args:
         name: Ansatz name.
@@ -117,9 +227,13 @@ def circuit(name: str) -> type[DeclarativeCircuit]:
     """
     if name in ANSAETZE:
         return ANSAETZE[name]
+    if name in ANSAETZE_N6:
+        return ANSAETZE_N6[name]
     found = getattr(Ansaetze, name, None)
     if found is None or not isinstance(found, type):
-        raise ValueError(f"unknown ansatz {name!r}; the arms are {list(ANSAETZE)}")
+        raise ValueError(
+            f"unknown ansatz {name!r}; the arms are {list(ANSAETZE) + list(ANSAETZE_N6)}"
+        )
     return found
 
 

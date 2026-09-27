@@ -51,16 +51,22 @@ from partiqledtr.models.gnn import _edge_mask, edge2node, node2edge
 
 __all__ = [
     "ANGLE_MAPS",
+    "ANGLE_WIDTHS",
     "ANSAETZE",
     "ENC_REUPLOAD",
     "ENC_WEIGHTS",
+    "NODE_UPDATES",
     "N_QUBITS",
+    "NodeMLP",
     "QFMConstellation",
     "encoding_matrix",
     "encoding_spectrum",
     "legacy_angles",
     "make_qfm",
     "pair_polar",
+    "pair_polar_boost",
+    "pair_polar_mass",
+    "pair_polar_theta",
     "readout_bonds",
     "readout_observables",
     "reupload_mask",
@@ -81,11 +87,12 @@ def _strategy_weights(strategy: str, n_qubits: int) -> np.ndarray:
 
 #: Per-qubit encoding weights of ROADMAP phase 4b arm B, as functions of the qubit
 #: count.  The first three are qml-essentials' own strategies (``base ** q``);
-#: ``ternary_pair`` repeats the exponent per *particle*, which is the only family
-#: that is dissociated **and** invariant under the endpoint swap (D100).
+#: ``ternary_pair`` repeats the exponent per *particle* (``n // 2`` qubits each),
+#: which is the only family that is dissociated **and** invariant under the
+#: endpoint swap (D100).
 ENC_WEIGHTS: dict[str, Callable[[int], np.ndarray]] = {
     name: functools.partial(_strategy_weights, name) for name in ("hamming", "binary", "ternary")
-} | {"ternary_pair": lambda n: 3.0 ** (np.arange(n) % N_ANGLES)}
+} | {"ternary_pair": lambda n: 3.0 ** (np.arange(n) % (n // 2))}
 
 
 def reupload_mask(reupload: str, n_layers: int, n_qubits: int = N_QUBITS) -> np.ndarray:
@@ -228,6 +235,7 @@ def make_qfm(
     seed: int = 0,
     enc_weights: str = "hamming",
     enc_reupload: str = "diagonal",
+    n_qubits: int = N_QUBITS,
 ) -> Model:
     """Build one edge QFM.
 
@@ -240,6 +248,7 @@ def make_qfm(
             again.
         enc_weights: Encoding weight strategy, one of :data:`ENC_WEIGHTS`.
         enc_reupload: Re-upload mask, one of :data:`ENC_REUPLOAD`.
+        n_qubits: Qubits per edge QFM, which here also fixes the feature count.
 
     Returns:
         A qml-essentials :class:`~qml_essentials.model.Model` with analytic
@@ -257,12 +266,12 @@ def make_qfm(
         raise ValueError(f"enc_weights must be one of {list(ENC_WEIGHTS)}, got {enc_weights!r}")
 
     model = Model(
-        n_qubits=N_QUBITS,
+        n_qubits=n_qubits,
         n_layers=n_layers,
         circuit_type=pqc,
-        encoding=["RY"] * N_QUBITS,
-        data_reupload=reupload_mask(enc_reupload, n_layers),
-        observables=readout_observables(ansatz),
+        encoding=["RY"] * n_qubits,
+        data_reupload=reupload_mask(enc_reupload, n_layers, n_qubits),
+        observables=readout_observables(ansatz, n_qubits),
         shots=None,
         random_seed=seed,
     )
@@ -270,8 +279,8 @@ def make_qfm(
     # one matrix is the whole of what arm B varies and a weighting qml-essentials
     # does not ship -- `ternary_pair` -- needs no new strategy (D100). They stay
     # frozen: trainable frequencies are a separate ROADMAP axis.
-    matrix = encoding_matrix(enc_weights, enc_reupload, N_QUBITS)
-    model.enc_params = jnp.broadcast_to(jnp.asarray(matrix), (n_layers, N_QUBITS, N_QUBITS))
+    matrix = encoding_matrix(enc_weights, enc_reupload, n_qubits)
+    model.enc_params = jnp.broadcast_to(jnp.asarray(matrix), (n_layers, n_qubits, n_qubits))
     return model
 
 
@@ -349,27 +358,155 @@ def legacy_angles(p4: ArrayLike) -> jax.Array:
     return jnp.stack([p4[..., 0] * energy, p4[..., 2] * energy], axis=-1) * jnp.pi
 
 
-#: Four-vectors to the two angles each particle contributes to an edge QFM.
+def _third_angle(p4: ArrayLike, third: Callable[[jax.Array], jax.Array]) -> jax.Array:
+    """The pair-polar angles plus one derived third angle per particle."""
+    p4 = jnp.asarray(p4)
+    return jnp.concatenate([pair_polar(p4), third(p4)[..., None]], axis=-1)
+
+
+def _mass(p4: jax.Array) -> jax.Array:
+    """A mass proxy from a (normalised) four-vector.
+
+    ``sqrt(max(E^2 - |p|^2, 0))``. The features carry separate momentum and
+    energy scales (``data/features.py``), so on normalised inputs this is a
+    *deformed* invariant -- a fixed quadratic form of the features, not the rest
+    mass in physical units. The same caveat already widens ``alpha``; what
+    decides whether a chart is usable is its induced angle law, priced by the
+    phase-6 encoding report before any training (ROADMAP phase 6).
+    """
+    return jnp.sqrt(jnp.clip(p4[..., 3] ** 2 - jnp.sum(p4[..., :3] ** 2, axis=-1), min=0.0))
+
+
+def pair_polar_boost(p4: ArrayLike) -> jax.Array:
+    """Pair-polar plus the boost chart ``atan2(|p|, m)`` -- three angles per particle.
+
+    The third angle is a velocity measure (``gamma beta`` against 1): a
+    relativistic particle sits near ``pi/2``, the favourable RY point, so the
+    chart is expected to land in the favourable band the way ``alpha`` does
+    (``RESEARCH.md`` §1). One of the three ROADMAP phase-6 candidate charts.
+    """
+    p4 = jnp.asarray(p4)
+    return _third_angle(p4, lambda v: jnp.arctan2(jnp.linalg.norm(v[..., :3], axis=-1), _mass(v)))
+
+
+def pair_polar_mass(p4: ArrayLike) -> jax.Array:
+    """Pair-polar plus the inverse-boost chart ``atan2(m, E)`` -- three angles.
+
+    The third angle is ``1/gamma``-like: a relativistic particle sits near zero,
+    the collapsed RY point, so this candidate is expected to cluster. Kept as a
+    candidate precisely so the encoding report decides rather than intuition.
+    """
+    return _third_angle(jnp.asarray(p4), lambda v: jnp.arctan2(_mass(v), v[..., 3]))
+
+
+def pair_polar_theta(p4: ArrayLike) -> jax.Array:
+    """Pair-polar plus the polar angle ``atan2(p_T, p_z)`` -- three angles.
+
+    The third angle is the momentum direction's polar angle in ``(0, pi)``,
+    frame-dependent but broadly distributed. One of the three phase-6 candidates.
+    """
+    return _third_angle(
+        jnp.asarray(p4),
+        lambda v: jnp.arctan2(jnp.linalg.norm(v[..., :2], axis=-1), v[..., 2]),
+    )
+
+
+#: Four-vectors to the angles each particle contributes to an edge QFM.
 #: ``"legacy"`` is the clustered control arm and needs the ``"legacy"`` encoding.
-ANGLE_MAPS = {"pair_polar": pair_polar, "legacy": legacy_angles}
+#: The ``pair_polar_*`` charts are the phase-6 three-angle candidates for the
+#: ``n = 6`` constellation, priced against each other by the s4 encoding report.
+ANGLE_MAPS = {
+    "pair_polar": pair_polar,
+    "legacy": legacy_angles,
+    "pair_polar_boost": pair_polar_boost,
+    "pair_polar_mass": pair_polar_mass,
+    "pair_polar_theta": pair_polar_theta,
+}
+
+#: Angles each map yields per particle; the constellation checks
+#: ``n_qubits == 2 * ANGLE_WIDTHS[angle_map]`` so a map/register mismatch fails
+#: at construction rather than as a reshape error inside a jitted step.
+ANGLE_WIDTHS = {
+    "pair_polar": 2,
+    "legacy": 2,
+    "pair_polar_boost": 3,
+    "pair_polar_mass": 3,
+    "pair_polar_theta": 3,
+}
+
+
+#: Node-update variants of the trig-interface arm: the default linear map, the
+#: sine-activated SIREN block, and its matched-parameter ELU control.
+NODE_UPDATES = ("linear", "siren", "elu")
+
+
+class NodeMLP(nnx.Module):
+    """Two-layer node update with a *linear* output, sine- or ELU-activated.
+
+    The trig-interface arm: the constellation's node update is otherwise a bare
+    linear map, so the whole quantum arm is trig-polynomial -> linear ->
+    trig-polynomial -> linear, with no classical nonlinear capacity at all.
+    ``"siren"`` applies ``sin(omega_0 (W x + b))`` with the SIREN first-layer
+    initialisation ``W ~ U(-1/n_in, 1/n_in)`` and ``omega_0 = 30`` (Sitzmann et
+    al., arXiv:2006.09661) -- the scale discipline that keeps post-sine
+    activations distributed instead of collapsing ``sin`` to its linear regime.
+    ``"elu"`` is the matched-parameter control that separates "a nonlinearity
+    pays" from "the trigonometric one pays". The output layer stays linear in
+    both, because the consumer re-encodes it as angles.
+
+    Args:
+        n_in: Size of the trailing input axis.
+        n_hidden: Width of the hidden layer.
+        n_out: Size of the trailing output axis.
+        activation: ``"siren"`` or ``"elu"``.
+        rngs: Rng container used for parameter initialisation.
+
+    Raises:
+        ValueError: If ``activation`` is neither variant.
+    """
+
+    #: SIREN's first-layer frequency scale, from the paper's recipe.
+    OMEGA_0 = 30.0
+
+    def __init__(
+        self, n_in: int, n_hidden: int, n_out: int, *, activation: str, rngs: nnx.Rngs
+    ) -> None:
+        if activation not in ("siren", "elu"):
+            raise ValueError(f"activation must be 'siren' or 'elu', got {activation!r}")
+        self.activation = activation
+        kwargs: dict[str, Any] = {}
+        if activation == "siren":
+            bound = 1.0 / n_in
+            kwargs["kernel_init"] = lambda key, shape, dtype: jax.random.uniform(
+                key, shape, dtype, -bound, bound
+            )
+        self.fc1 = nnx.Linear(n_in, n_hidden, rngs=rngs, **kwargs)
+        self.fc2 = nnx.Linear(n_hidden, n_out, rngs=rngs)
+
+    def __call__(self, x: jax.Array) -> jax.Array:
+        """Apply the block to the trailing axis."""
+        h = self.fc1(x)
+        h = jnp.sin(self.OMEGA_0 * h) if self.activation == "siren" else nnx.elu(h)
+        return self.fc2(h)
 
 
 class QFMConstellation(nnx.Module):
     """Two message-passing blocks whose edge function is a shared-weight QFM.
 
     Shapes, with ``B`` events, ``L`` padded particles, ``C`` classes, ``nb`` the
-    arm's bond count (3/4/6/4 for the four arms, :func:`readout_bonds`) and ``K``
+    arm's bond count (:func:`readout_bonds`), ``A = n_qubits // 2`` the angles
+    per particle (2 at the phase-4b size, 3 for the phase-6 arms) and ``K``
     the channel count (``n_channels``, default 1 -- D108's node-state widening:
     ``K`` independently initialised QFMs per block, so the inter-block node state
-    is ``2K`` numbers rather than 2)::
+    is ``A * K`` numbers rather than ``A``)::
 
         p4    (B, L, 4)        four-vectors
-        ang   (B, L, 2)        pair-polar angles, optionally whitened
-        a     (B, L, 2)        preconditioner (identity or elementwise residual MLP)
-        u1    (B, L, L, 4)     concat(a_i, a_j) -> folded to (B*L*L, 4) per channel
+        ang   (B, L, A)        angle-map output, optionally whitened
+        a     (B, L, A)        preconditioner (identity or elementwise residual MLP)
+        u1    (B, L, L, 2A)    concat(a_i, a_j) -> folded to (B*L*L, 2A) per channel
         e1    (B, L, L, K*nb)  <XX_b> + <YY_b> per coupling bond and channel (D107)
         m     (B, L, K*nb)     masked mean over real neighbours
-        h     (B, L, 2K)       [a ; m] @ w_node, channel c's pair at h[..., 2c:2c+2]
+        h     (B, L, A*K)      [a ; m] @ w_node, channel c's angles at h[..., A*c:A*(c+1)]
         e2    (B, L, L, K*nb)  second QFM block, its own parameters per channel
         out   (B, L, L, C)     symmetrised linear readout
 
@@ -386,17 +523,33 @@ class QFMConstellation(nnx.Module):
 
     Args:
         n_classes: Number of LCAG classes ``C``.
-        ansatz: Ansatz arm, one of :data:`ANSAETZE`.
+        ansatz: Ansatz arm, one of :data:`ANSAETZE` or :data:`ANSAETZE_N6`.
         n_layers: Data-reuploading depth of each QFM.
         n_channels: Independently initialised QFMs per block (D108). Widens the
-            inter-block node state to ``2 * n_channels`` numbers; the default 1
-            is the original architecture.
+            inter-block node state to ``n_angles * n_channels`` numbers; the
+            default 1 is the original architecture.
+        n_qubits: Qubits per edge QFM; must equal twice the angle map's width.
+            The default 4 is the phase-4b constellation (D24), 6 the phase-6 one.
         angle_map: Key into :data:`ANGLE_MAPS`: ``"pair_polar"`` for the polar map
             of ``DECISIONS.md`` D24, ``"legacy"`` for the clustered control arm,
-            which expects the ``"legacy"`` encoding.
+            which expects the ``"legacy"`` encoding, or a three-angle
+            ``pair_polar_*`` chart for the phase-6 register.
         enc_weights: Encoding weight strategy, one of :data:`ENC_WEIGHTS`.
         enc_reupload: Re-upload mask, one of :data:`ENC_REUPLOAD`. Crossed with
             ``enc_weights`` these are ROADMAP phase 4b arm B.
+        node_update: Node-update variant, one of :data:`NODE_UPDATES`. The
+            default ``"linear"`` is the original architecture; ``"siren"`` and
+            ``"elu"`` are the trig-interface arm and its control
+            (:class:`NodeMLP`).
+        node_hidden: Hidden width of the non-linear node updates; ignored by
+            ``"linear"``.
+        node_omega: Scale applied to the node update's output before block 2
+            re-encodes it as angles. The re-encoding boundary is a sine of a
+            linear map, and nothing else sets its frequency scale: at the
+            default init the hidden values start small, so block 2's encoding
+            starts clustered near zero -- the collapsed regime on a floor-free
+            arm. ``1.0`` is the original behaviour; SIREN's ``omega_0`` is the
+            same lever one layer earlier.
         preconditioner: Optional elementwise preconditioner ``(..., 2) -> (..., 2)`` applied to
             the angles; ``None`` feeds them raw.
         whitening: Optional ``(4, 4)`` rotation applied to the four-vectors before
@@ -411,9 +564,15 @@ class QFMConstellation(nnx.Module):
             ``whitening`` is not ``(4, 4)``.
     """
 
-    #: A preconditioner attached here sees the pair-polar angles, not the raw
-    #: four-vectors, so it is built for this many features rather than ``F``.
-    preconditioner_features = N_ANGLES
+    @staticmethod
+    def preconditioner_features(n_qubits: int = N_QUBITS) -> int:
+        """Feature width of an attached preconditioner: the per-particle angles.
+
+        A preconditioner here sees the angle-map output, not the raw four-vectors,
+        so it is built for ``n_qubits // 2`` features rather than ``F``
+        (:func:`partiqledtr.train.build_model` calls this before construction).
+        """
+        return n_qubits // 2
 
     def __init__(
         self,
@@ -423,16 +582,20 @@ class QFMConstellation(nnx.Module):
         ansatz: str = "XY_Brickwork",
         n_layers: int = 2,
         n_channels: int = 1,
+        n_qubits: int = N_QUBITS,
         angle_map: str = "pair_polar",
         enc_weights: str = "hamming",
         enc_reupload: str = "diagonal",
+        node_update: str = "linear",
+        node_hidden: int = 32,
+        node_omega: float = 1.0,
         preconditioner: nnx.Module | None = None,
         whitening: Any = None,
         seed: int = 0,
         rngs: nnx.Rngs,
         dim: int = 0,
     ) -> None:
-        del dim  # the quantum path is fixed at N_QUBITS (D24), so there is no width
+        del dim  # the quantum path's width is n_qubits, set by the arm, not by `dim`
         if n_features != 4:
             raise ValueError(
                 f"the QFM constellation consumes four-vectors, so it needs the "
@@ -446,6 +609,16 @@ class QFMConstellation(nnx.Module):
             raise ValueError(f"n_channels must be positive, got {n_channels}")
         if angle_map not in ANGLE_MAPS:
             raise ValueError(f"angle_map must be one of {sorted(ANGLE_MAPS)}, got {angle_map!r}")
+        if node_update not in NODE_UPDATES:
+            raise ValueError(f"node_update must be one of {NODE_UPDATES}, got {node_update!r}")
+        if node_omega <= 0.0:
+            raise ValueError(f"node_omega must be positive, got {node_omega}")
+        if n_qubits != 2 * ANGLE_WIDTHS[angle_map]:
+            raise ValueError(
+                f"angle_map {angle_map!r} yields {ANGLE_WIDTHS[angle_map]} angles per "
+                f"particle, so it needs n_qubits={2 * ANGLE_WIDTHS[angle_map]}, "
+                f"got {n_qubits}"
+            )
         circuit(ansatz)  # resolve early, so an unknown arm fails here and not mid-build
         # Converted before the shape check so a checkpoint may carry the rotation
         # as a nested list rather than an array (D81).
@@ -455,6 +628,8 @@ class QFMConstellation(nnx.Module):
 
         self.ansatz = ansatz
         self.n_layers = n_layers
+        self.n_qubits = n_qubits
+        self.n_angles = n_qubits // 2
         self.angle_map = angle_map
         self.enc_weights = enc_weights
         self.enc_reupload = enc_reupload
@@ -462,7 +637,7 @@ class QFMConstellation(nnx.Module):
         self.whitening = rotation
         # Not an nnx.Param: the encoding weights are fixed by the arm, and making
         # them trainable is a separate ROADMAP axis with its own failure mode.
-        self.enc_matrix = jnp.asarray(encoding_matrix(enc_weights, enc_reupload))
+        self.enc_matrix = jnp.asarray(encoding_matrix(enc_weights, enc_reupload, n_qubits))
 
         # Separate parameters per block: the two blocks do different jobs, and
         # equivariance only needs sharing across *edges* (D28). Each block holds
@@ -477,6 +652,7 @@ class QFMConstellation(nnx.Module):
                     n_layers=n_layers,
                     enc_weights=enc_weights,
                     enc_reupload=enc_reupload,
+                    n_qubits=n_qubits,
                 )
                 for c in range(n_channels)
             ]
@@ -488,9 +664,17 @@ class QFMConstellation(nnx.Module):
         self._qfm1, self._qfm2 = blocks[0][0], blocks[1][0]
 
         self.n_channels = n_channels
-        self.n_bonds = len(readout_bonds(ansatz))
-        self.w_node = nnx.Linear(
-            N_ANGLES + n_channels * self.n_bonds, n_channels * N_ANGLES, rngs=rngs
+        self.n_bonds = len(readout_bonds(ansatz, n_qubits))
+        self.node_update = node_update
+        self.node_omega = float(node_omega)
+        node_in = self.n_angles + n_channels * self.n_bonds
+        node_out = n_channels * self.n_angles
+        # The default keeps the exact construction (and rng draw order) of the
+        # original architecture, so `node_update="linear"` stays bit-identical.
+        self.w_node = (
+            nnx.Linear(node_in, node_out, rngs=rngs)
+            if node_update == "linear"
+            else NodeMLP(node_in, node_hidden, node_out, activation=node_update, rngs=rngs)
         )
         self.head = nnx.Linear(n_channels * self.n_bonds, n_classes, rngs=rngs)
 
@@ -504,7 +688,7 @@ class QFMConstellation(nnx.Module):
         reshape into the wrong edge grid rather than fail.
         """
         batch, n_leaves = angles.shape[0], angles.shape[1]
-        flat = node2edge(angles).reshape(-1, N_QUBITS)
+        flat = node2edge(angles).reshape(-1, self.n_qubits)
         out = qfm.apply(params=params, inputs=flat)
         expected = (flat.shape[0], 1, 1, 1, 2 * self.n_bonds)
         if out.shape != expected:
@@ -535,10 +719,10 @@ class QFMConstellation(nnx.Module):
             mask: Boolean ``(B, L)``, True on real particles.
 
         Returns:
-            ``(n_edges, 4)`` angles, one row per directed edge between two distinct
-            real particles.
+            ``(n_edges, n_qubits)`` angles, one row per directed edge between two
+            distinct real particles.
         """
-        pairs = node2edge(self.encode(x)).reshape(-1, N_QUBITS)
+        pairs = node2edge(self.encode(x)).reshape(-1, self.n_qubits)
         return pairs[_edge_mask(mask).reshape(-1)]
 
     def encoded_angles(self, x: jax.Array, mask: jax.Array) -> jax.Array:
@@ -627,7 +811,7 @@ class QFMConstellation(nnx.Module):
         angles = self.edge_angles(x, mask)
         if angles.shape[0] == 0:
             return float("nan")
-        basis = dla_basis(self.ansatz, N_QUBITS)
+        basis = dla_basis(self.ansatz, self.n_qubits)
         params = self.qfm1_params[...]
         # Mean over channels: every channel encodes the same angles, so this is
         # the average over the block's independent circuits (D108).
@@ -635,12 +819,74 @@ class QFMConstellation(nnx.Module):
             g_purity_exact(
                 np.asarray(
                     self._qfm1.apply(params=params[c], inputs=angles, execution_type="state")
-                ).reshape(-1, 2**N_QUBITS),
+                ).reshape(-1, 2**self.n_qubits),
                 basis,
             )
             for c in range(self.n_channels)
         ]
         return float(np.mean(values))
+
+    def _node_state(self, x: jax.Array, mask: jax.Array) -> tuple[jax.Array, jax.Array]:
+        """Block 1 plus the node update: what block 2 encodes, and the edge mask.
+
+        Channels are unrolled: n_channels stays small (D108), and each call is
+        the same jitted edge evaluation with a different parameter slice.
+
+        Returns:
+            ``((B, L, K, A) angles, (B, L, L) edge mask)``, with ``node_omega``
+            already applied -- this is exactly the state block 2 consumes.
+        """
+        edge_mask = _edge_mask(mask)
+        angles = self.encode(x)
+        params1 = self.qfm1_params[...]
+        messages = jnp.concatenate(
+            [
+                edge2node(self._edges(self._qfm1, params1[c], angles), edge_mask)
+                for c in range(self.n_channels)
+            ],
+            axis=-1,
+        )
+        hidden = self.node_omega * self.w_node(jnp.concatenate([angles, messages], axis=-1))
+        return hidden.reshape(*hidden.shape[:-1], self.n_channels, self.n_angles), edge_mask
+
+    def block2_encoded_angles(self, x: jax.Array, mask: jax.Array) -> jax.Array:
+        """The angles the *second* QFM block actually rotates by, over real edges.
+
+        The diagnostic of the re-encoding boundary: block 2 consumes the node
+        update's output directly as RY angles, and nothing gates that
+        distribution the way D111 gates the block-1 charts -- at the default
+        init it starts near zero, the collapsed point of a floor-free arm.
+        Channels are stacked as extra rows (same sites, independent circuits).
+
+        Args:
+            x: ``(B, L, 4)`` four-vectors.
+            mask: Boolean ``(B, L)``, True on real particles.
+
+        Returns:
+            ``(K * n_edges, n_qubits)`` encoded angles ``theta = W u``.
+        """
+        pairs, edge_mask = self._node_state(x, mask)
+        keep = edge_mask.reshape(-1)
+        per_channel = [
+            node2edge(pairs[..., c, :]).reshape(-1, self.n_qubits)[keep]
+            for c in range(self.n_channels)
+        ]
+        return jnp.concatenate(per_channel, axis=0) @ self.enc_matrix.T
+
+    def block2_g_purity(self, x: jax.Array, mask: jax.Array) -> jax.Array:
+        """Mean closed-form g-purity of the distribution block 2 encodes.
+
+        The companion of :meth:`g_purity` one block deeper. Under re-uploading
+        the closed form's premise (a product state entering the block) holds
+        only approximately here -- block 1's circuit acts in between -- so read
+        it as the same kind of diagnostic the D78 convention gives block 1, not
+        as an exact variance-law input.
+        """
+        return jnp.mean(product_state_purity(self.block2_encoded_angles(x, mask), self.ansatz))
+
+    def block2_angle_stats(self, x: jax.Array, mask: jax.Array) -> dict[str, list[float]]:
+        """Shape of the distribution block 2 encodes, per qubit (cf. :meth:`angle_stats`)."""
+        return angle_stats(np.asarray(self.block2_encoded_angles(x, mask)))
 
     def __call__(self, x: jax.Array, mask: jax.Array) -> jax.Array:
         """Predict LCAG class logits.
@@ -652,22 +898,8 @@ class QFMConstellation(nnx.Module):
         Returns:
             Logits of shape ``(B, L, L, C)``, symmetric in the two ``L`` axes.
         """
-        edge_mask = _edge_mask(mask)
-        angles = self.encode(x)
-
-        # Channels are unrolled: n_channels stays small (D108), and each call is
-        # the same jitted edge evaluation with a different parameter slice.
-        params1, params2 = self.qfm1_params[...], self.qfm2_params[...]
-        messages = jnp.concatenate(
-            [
-                edge2node(self._edges(self._qfm1, params1[c], angles), edge_mask)
-                for c in range(self.n_channels)
-            ],
-            axis=-1,
-        )
-        hidden = self.w_node(jnp.concatenate([angles, messages], axis=-1))
-        pairs = hidden.reshape(*hidden.shape[:-1], self.n_channels, N_ANGLES)
-
+        pairs, _ = self._node_state(x, mask)
+        params2 = self.qfm2_params[...]
         edges = jnp.concatenate(
             [self._edges(self._qfm2, params2[c], pairs[..., c, :]) for c in range(self.n_channels)],
             axis=-1,

@@ -336,6 +336,39 @@ def test_arm_certificates_at_the_constellation_size(ansatz, dim_g, d_z, pi_invar
     assert (mapped == bonds) is pi_invariant
 
 
+@pytest.mark.parametrize(
+    ("ansatz", "dim_g", "d_z"),
+    [("XY_Cycle", 60, 0), ("XY_Ladder", 510, 0), ("XY_OddChord", 1020, 30)],
+)
+def test_phase6_arm_certificates_at_six_qubits(ansatz, dim_g, d_z):
+    """The graph trichotomy of ROADMAP phase 6, measured rather than asserted.
+
+    The even cycle is bipartite and floor-free at a polynomial closure; the
+    ladder's middle rung adds a degree-3 vertex (the manuscript's
+    encoded-universality criterion) while keeping ``d_Z = 0``; the intra-particle
+    chords close odd triangles and the floor returns. One rung toggles hardness,
+    the chords toggle the floor -- and every arm stays invariant under the
+    endpoint swap ``pi = (0 3)(1 4)(2 5)``.
+    """
+    from partiqledtr.ansaetze import swap_invariant
+
+    record = dla_check(ansatz, n_qubits=6, max_dim=4200)
+    assert (record["dim_g"], record["n_diag_words"]) == (dim_g, d_z)
+    assert not record["capped"]
+    assert swap_invariant(ansatz, 6)
+
+
+def test_phase6_arms_reject_any_other_register():
+    """The arms are explicit edge lists at ``n = 6``; at any other register the
+    same list would silently be a different graph, so it must fail instead."""
+    from partiqledtr.ansaetze import bonds
+
+    with pytest.raises(ValueError, match="6 qubits"):
+        bonds("XY_Cycle", 4)
+    with pytest.raises(ValueError, match="6 qubits"):
+        dla_check("XY_Ladder", n_qubits=8, max_dim=4200)
+
+
 @needs_reference
 @pytest.mark.parametrize("n", [2, 4, 6, 10])
 def test_offdiag_uniform_mean_matches_reference(n):

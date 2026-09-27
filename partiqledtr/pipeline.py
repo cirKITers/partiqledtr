@@ -47,6 +47,12 @@ zero, which is where the unflattening rescue prediction is falsifiable (D80).
 
 Phase 4b adds three axes to the same flow and nothing else: ``n_layers`` (arm A),
 ``enc_weights`` x ``enc_reupload`` (arm B) and the new ``ansatz`` arms (arm C).
+Phases 4c and 6 add theirs the same way: ``n_channels`` (D108), the per-group
+``lr_preconditioner``/``lr_qfm`` overrides (D109), ``n_qubits`` (D110) and the
+``node_update``/``node_hidden``/``node_omega`` trig-interface axis (D112) -- so
+every study cell is one *versioned* run of this one flow, which is the point:
+studies submit through the engine (s2's ``run_arm_fluksio`` pattern) and the
+in-process drivers remain the sandbox path (D113).
 
 Declarations only: the nodes live in :mod:`partiqledtr.data.dataset`,
 :mod:`partiqledtr.data.whitening`, :mod:`partiqledtr.analysis` and
@@ -115,11 +121,21 @@ train = Flow(
         Port("epochs", "int", initial=100),
         Port("batch_size", "int", initial=64),
         Port("lr", "float", initial=1e-3),
+        # Per-group overrides (D109). Nullable inputs are not expressible yet
+        # (NOTEPAD.md 2026-09-03), so the flow contract is: non-positive means
+        # "share lr". The 0.0-freeze diagnostic stays on the in-process path.
+        Port("lr_preconditioner", "float", initial=0.0),
+        Port("lr_qfm", "float", initial=0.0),
         Port("ansatz", "str", initial="XY_Brickwork"),
         Port("n_layers", "int", initial=2),
+        Port("n_channels", "int", initial=1),
+        Port("n_qubits", "int", initial=4),
         Port("angle_map", "str", initial="pair_polar"),
         Port("enc_weights", "str", initial="hamming"),
         Port("enc_reupload", "str", initial="diagonal"),
+        Port("node_update", "str", initial="linear"),
+        Port("node_hidden", "int", initial=32),
+        Port("node_omega", "float", initial=1.0),
         Port("whiten", "bool", initial=False),
         Port("whitening_seed", "int", initial=0),
     ],

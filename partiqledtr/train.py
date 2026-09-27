@@ -131,9 +131,13 @@ def build_model(
     ansatz: str = "XY_Brickwork",
     n_layers: int = 2,
     n_channels: int = 1,
+    n_qubits: int = 4,
     angle_map: str = "pair_polar",
     enc_weights: str = "hamming",
     enc_reupload: str = "diagonal",
+    node_update: str = "linear",
+    node_hidden: int = 32,
+    node_omega: float = 1.0,
     whitening: Any = None,
 ) -> nnx.Module:
     """Construct a model and its optional preconditioner from the registry strings.
@@ -154,12 +158,18 @@ def build_model(
         ansatz: Ansatz arm of the quantum model.
         n_layers: Data-reuploading depth of the quantum model.
         n_channels: Independent QFMs per block of the quantum model (D108).
+        n_qubits: Qubits per edge QFM (ROADMAP phase 6); must match the angle
+            map's width, which the constellation checks at construction.
         angle_map: Four-vector-to-angle map of the quantum model, a key of
             :data:`partiqledtr.models.qfm.ANGLE_MAPS`.
         enc_weights: Encoding weight strategy of the quantum model, a key of
             :data:`partiqledtr.models.qfm.ENC_WEIGHTS`.
         enc_reupload: Re-upload mask of the quantum model, a key of
             :data:`partiqledtr.models.qfm.ENC_REUPLOAD`.
+        node_update: Node-update variant of the quantum model, one of
+            :data:`partiqledtr.models.qfm.NODE_UPDATES` (the trig-interface arm).
+        node_hidden: Hidden width of the non-linear node updates.
+        node_omega: Scale at the block-2 re-encoding boundary of the quantum model.
         whitening: Optional fixed rotation for the quantum model's whitening arm.
             A nested list is accepted, which is how a checkpoint carries it (D81).
 
@@ -193,17 +203,23 @@ def build_model(
         "ansatz": ansatz,
         "n_layers": n_layers,
         "n_channels": n_channels,
+        "n_qubits": n_qubits,
         "angle_map": angle_map,
         "enc_weights": enc_weights,
         "enc_reupload": enc_reupload,
+        "node_update": node_update,
+        "node_hidden": node_hidden,
+        "node_omega": node_omega,
         "seed": seed,
     }
     if whitening is not None:
         optional["whitening"] = whitening
     extra = {name: value for name, value in optional.items() if name in accepted}
 
-    # The quantum arm's preconditioner sees its pair-polar angles, not the raw features.
-    preconditioner_features = getattr(cls, "preconditioner_features", n_features)
+    # The quantum arm's preconditioner sees its angle-map output, not the raw
+    # features, so its width follows the register rather than F.
+    width = getattr(cls, "preconditioner_features", None)
+    preconditioner_features = width(n_qubits) if callable(width) else n_features
     return cls(
         n_features,
         n_classes,
@@ -496,9 +512,13 @@ def train_model(
     ansatz: str = "XY_Brickwork",
     n_layers: int = 2,
     n_channels: int = 1,
+    n_qubits: int = 4,
     angle_map: str = "pair_polar",
     enc_weights: str = "hamming",
     enc_reupload: str = "diagonal",
+    node_update: str = "linear",
+    node_hidden: int = 32,
+    node_omega: float = 1.0,
     whitening: Any = None,
     n_purity_events: int = 64,
 ) -> Generator[dict[str, float], None, tuple[nnx.Module, dict[str, Any]]]:
@@ -534,11 +554,15 @@ def train_model(
         ansatz: Ansatz arm of the quantum model; ignored by the classical ones.
         n_layers: Data-reuploading depth of the quantum model.
         n_channels: Independent QFMs per block of the quantum model (D108).
+        n_qubits: Qubits per edge QFM of the quantum model (ROADMAP phase 6).
         angle_map: Four-vector-to-angle map of the quantum model. Pair it with the
             matching ``encoding``: ``"legacy"`` with ``"legacy"``, otherwise
             ``"cartesian"``.
         enc_weights: Encoding weight strategy of the quantum model (arm B).
         enc_reupload: Re-upload mask of the quantum model (arm B).
+        node_update: Node-update variant of the quantum model (trig-interface arm).
+        node_hidden: Hidden width of the non-linear node updates.
+        node_omega: Scale at the quantum model's block-2 re-encoding boundary.
         whitening: Optional fixed ``(4, 4)`` rotation for the whitening arm.
         n_purity_events: Validation events the g-purity is measured on each epoch.
 
@@ -575,9 +599,13 @@ def train_model(
         "ansatz": ansatz,
         "n_layers": int(n_layers),
         "n_channels": int(n_channels),
+        "n_qubits": int(n_qubits),
         "angle_map": angle_map,
         "enc_weights": enc_weights,
         "enc_reupload": enc_reupload,
+        "node_update": node_update,
+        "node_hidden": int(node_hidden),
+        "node_omega": float(node_omega),
         # In the config, not beside it: the rotation is part of what the model *is*,
         # and it is not an nnx.Param, so a checkpoint that did not carry it would
         # rebuild the whitened arm as the raw one and score it on the wrong angles
@@ -593,8 +621,10 @@ def train_model(
     # (D105). Only the arms that encode quantum states expose g_purity.
     measure_purity = getattr(module, "g_purity", None)
     measure_angles = getattr(module, "angle_stats", None)
+    measure_block2 = getattr(module, "block2_g_purity", None)
     purity_batch = None
     initial_purity = float("nan")
+    initial_block2 = float("nan")
     initial_angles: dict[str, list[float]] | None = None
     angles: dict[str, list[float]] | None = None
     if measure_purity is not None:
@@ -611,6 +641,8 @@ def train_model(
         # no anchor and its first plotted point is already one epoch of training old.
         initial_purity = float(measure_purity(*purity_batch))
         initial_angles = measure_angles(*purity_batch) if measure_angles else None
+        if measure_block2 is not None:
+            initial_block2 = float(measure_block2(*purity_batch))
 
     rng = np.random.default_rng(seed)
     train_loss = float("nan")
@@ -683,6 +715,15 @@ def train_model(
             final["angle_stats_initial"] = initial_angles
         if angles is not None:
             final["angle_stats_final"] = angles
+        # The re-encoding boundary: what block 2 encodes, start and end. Kept in
+        # final_metrics rather than streamed, so the flow's declared ports are
+        # untouched.
+        if measure_block2 is not None:
+            final["block2_g_purity_initial"] = initial_block2
+            final["block2_g_purity"] = float(measure_block2(*purity_batch))
+            block2_stats = getattr(module, "block2_angle_stats", None)
+            if block2_stats is not None:
+                final["block2_angle_stats_final"] = block2_stats(*purity_batch)
     return module, final
 
 
@@ -700,11 +741,21 @@ def train_model(
         Port("epochs", "int"),
         Port("batch_size", "int"),
         Port("lr", "float"),
+        # Per-group overrides (D109). Nullable flow inputs are not expressible
+        # (NOTEPAD.md 2026-09-03), so the flow contract is: non-positive means
+        # "share lr" -- the body maps 0.0 to None before train_model.
+        Port("lr_preconditioner", "float"),
+        Port("lr_qfm", "float"),
         Port("ansatz", "str"),
         Port("n_layers", "int"),
+        Port("n_channels", "int"),
+        Port("n_qubits", "int"),
         Port("angle_map", "str"),
         Port("enc_weights", "str"),
         Port("enc_reupload", "str"),
+        Port("node_update", "str"),
+        Port("node_hidden", "int"),
+        Port("node_omega", "float"),
         Port("whitening", "artifact"),
         Port("whiten", "bool"),
         Port("dla_report", "json"),
@@ -745,11 +796,18 @@ def fit(
     epochs: int = 100,
     batch_size: int = 64,
     lr: float = 1e-3,
+    lr_preconditioner: float = 0.0,
+    lr_qfm: float = 0.0,
     ansatz: str = "XY_Brickwork",
     n_layers: int = 2,
+    n_channels: int = 1,
+    n_qubits: int = 4,
     angle_map: str = "pair_polar",
     enc_weights: str = "hamming",
     enc_reupload: str = "diagonal",
+    node_update: str = "linear",
+    node_hidden: int = 32,
+    node_omega: float = 1.0,
     whitening: dict[str, Any] | None = None,
     whiten: bool = False,
     dla_report: dict[str, Any] | None = None,
@@ -771,12 +829,21 @@ def fit(
         epochs: Number of passes over the training split.
         batch_size: Events per optimisation step.
         lr: Adam learning rate.
+        lr_preconditioner: Separate rate for the preconditioner (D109);
+            non-positive shares ``lr`` (the flow contract, NOTEPAD.md 2026-09-03).
+        lr_qfm: Separate rate for the circuit parameters (D109); non-positive
+            shares ``lr``.
         ansatz: Ansatz arm of the quantum model.
         n_layers: Data-reuploading depth of the quantum model.
+        n_channels: Independent QFMs per block of the quantum model (D108).
+        n_qubits: Qubits per edge QFM of the quantum model (D110).
         angle_map: Four-vector-to-angle map of the quantum model; pair ``"legacy"``
             with the ``"legacy"`` encoding.
         enc_weights: Encoding weight strategy of the quantum model (arm B).
         enc_reupload: Re-upload mask of the quantum model (arm B).
+        node_update: Node-update variant of the quantum model (D112).
+        node_hidden: Hidden width of the non-linear node updates (D112).
+        node_omega: Scale at the quantum model's re-encoding boundary (D112).
         whitening: Artifact reference to the fixed whitening rotation fitted by
             :func:`partiqledtr.data.whitening.whitening_rotation`. Always wired in
             the flow; applied only when ``whiten`` is set.
@@ -813,11 +880,18 @@ def fit(
         epochs=epochs,
         batch_size=batch_size,
         lr=lr,
+        lr_preconditioner=lr_preconditioner if lr_preconditioner > 0 else None,
+        lr_qfm=lr_qfm if lr_qfm > 0 else None,
         ansatz=ansatz,
         n_layers=n_layers,
+        n_channels=n_channels,
+        n_qubits=n_qubits,
         angle_map=angle_map,
         enc_weights=enc_weights,
         enc_reupload=enc_reupload,
+        node_update=node_update,
+        node_hidden=node_hidden,
+        node_omega=node_omega,
         whitening=rotation,
         n_purity_events=n_purity_events,
     )

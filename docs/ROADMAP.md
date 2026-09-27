@@ -245,14 +245,120 @@ task at all.
 - Online: spectrum tracking during training, in latent `phi` (post-preconditioner). This is the
   fingerprints paper's own open question about nonlinear classical preprocessing, and our
   preconditioner is exactly that case.
+- Suggested (2026-08-31): measure the task's spectral content *first* — fit a classical
+  RFF/trigonometric surrogate from encoded angles to the LCAG logits and read off which
+  frequencies carry the fit — then choose encoding weights whose spectrum covers that support.
+  Alignment, not size: phase 4b measured that generic enrichment costs accuracy, and
+  coefficient concentration (mhiri) predicts it. The surrogate doubles as the classical control
+  the no-advantage framing needs anyway. The 2026 literature on exactly this (Fourier locking /
+  frequency pacing, `LITERATURE.md`) also weakens the original reason `trainable_frequencies`
+  stays off; an axis to reopen deliberately, on the winning arm only.
 
-### 6. Ablation matrix & scaling
+### 6. Scaling: the graph trichotomy at `n = 6`, on kinematics-informed features
+
+*(Folded in 2026-08-31 from the avenue review. Agreed direction: combine the qubit scaling
+with a Lorentz-invariant third angle, and keep the learned preconditioner in every grid —
+the distribution effect is the spine of the study. Study folder would be `dev/s4-*`.)*
+
+Three findings converge here. The certificates have no dynamic range at `n = 4`
+(`FINDINGS.md` §6); widening the node state paid decisively (D108) and more qubits widen it
+further through the bond readout; and the unflattening manuscript's own hard families become
+instantiable as edge functions once the register grows. One design serves all three.
+
+**The design.** Three qubits per particle, so the endpoint swap is the shift by 3,
+`pi = (0 3)(1 4)(2 5)`. Three graph arms over the same intra-particle chains
+`(0,1), (1,2), (3,4), (4,5)`:
+
+| arm | extra bonds | expected certificate | role |
+| --- | --- | --- | --- |
+| even cycle | rungs `(0,3), (2,5)` | poly `dim_g`, `d_Z = 0` | floor-free tractable |
+| 3-rung ladder | rungs `(0,3), (1,4), (2,5)` | exponential, `d_Z = 0` | **floor-free hard**: connected bipartite with a degree-3 vertex is encoded-universal (brod, kokcu) |
+| odd chord | cycle + `(0,2), (3,5)` | exponential, `d_Z > 0` | floored hard control |
+
+One rung toggles hardness; the intra-particle chords toggle the floor. All three bond sets
+are `pi`-invariant; the orbits `{(0,1),(3,4)}`, `{(1,2),(4,5)}` and `{(0,2),(3,5)}` tie
+their angles (`shared=True` per orbit, the `XY_Ring` mechanism), the rungs are `pi`-fixed.
+At `n = 8` the same shapes are chains of four with end rungs (cycle) and all rungs
+(ladder). Every certificate — `dim_g`, `d_Z`, bipartiteness, `pi`-invariance — is recorded
+by `dla_check` before training, as always; the exponential closures are still enumerable at
+`n = 6` (~1e3 words) and `n = 8` (~1.6e4).
+
+**The features.** Three qubits per particle need a third angle, and that is where
+"kinematics-informed" becomes concrete: an `atan2`-style chart of a Lorentz-invariant /
+boost quantity, in the style of the pair-polar map. Candidates to price *before any
+training* through `encoding_report`, the phase-4b discipline: `atan2(m, E)` (invariant mass
+over lab energy, an inverse-boost measure), `atan2(|p|, m)`, `atan2(p_T, |p_z|)`. The
+choice is a gate, not a tuning knob: pick the chart whose induced angle law sits at or
+above `mu_n`, and record the table the way `RESEARCH.md` §10 did. Two open design points:
+how the clustered `legacy` control generalises to six features (its product chart has no
+third factor), and whether the *pair* invariant `m_ij` enters at all — as a feature column
+it would break the square mask, and the in-algebra alternative is `ALGEBRA.md`'s question,
+not this phase.
+
+**Gated (D111, 2026-08-31):** `pair_polar_boost` (`atan2(|p|, m)`) wins at 1.87/1.43
+`mu_n` on the floor-free arms, 0% of edges below threshold; even `atan2(m, E)` sits at
+~1.0 — the FSPs are not relativistic enough to cluster any chart, so this dataset offers
+no clustered three-angle arm. The `legacy` design point was resolved by **dropping the
+clustered axis from s4** (user decision), which defers prediction 2 below; `m_ij` stays
+`ALGEBRA.md`'s question.
+
+**Predictions, registered in advance:**
+
+1. The certificates get range: the floored and universal arms sit near `2^-n` (`1/65` at
+   `n = 6`) while the poly floor-free arm stays `Theta(1/n)` — the safety-versus-selection
+   question of `FINDINGS.md` §6 becomes testable.
+2. On the clustered encoding the floor-free arms approach the annihilation regime and the
+   learned preconditioner re-opens them — the rescue with real range, which `n = 4` could
+   not show. The `none` cells stay as the frozen controls.
+3. The ladder trains at `n = 6` despite its cap — `2^-6` is within a factor five of
+   `XY_Ring`'s `n = 4` variance — so hardness moves the attainable scale, not the role of
+   the input distribution. That is the manuscript's hard-family row, run on a task.
+4. The floored odd-chord arm shows the §15 indifference (no purity-loss coupling),
+   replicating the specificity control at scale.
+
+**Claim wording, fixed now:** the ladder arm is "from an encoded-universal family, outside
+Lie-algebraic simulation", never "has no classical surrogate" — average-case
+Pauli-propagation estimators and RFF surrogates exist regardless (`LITERATURE.md`).
+
+**Implementation plan** (state as of 2026-08-31; details in D110/D111):
+
+1. **Done.** `Topology.graph(edges=...)` landed upstream; `ansaetze.bonds` reads the
+   explicit edge lists unchanged.
+2. **Done.** `n_qubits` threads from `train_model`/`build_model` into the constellation,
+   masks, readout and checkpoint config; the `n = 4` path passes the existing suite
+   unchanged (D110).
+3. **Done.** Three candidate charts (`pair_polar_boost`/`_mass`/`_theta`) implemented and
+   priced; `pair_polar_boost` gated in (D111). The `legacy` six-feature decision fell
+   away with the axis.
+4. **Done.** `XY_Cycle`/`XY_Ladder`/`XY_OddChord` with per-orbit tying, in `ANSAETZE_N6`;
+   certificates and in-algebra readout asserted in the tests.
+5. **Done.** Cost gate: the worst-case cell ran healthy in 4.1 h solo (~5-8 h under
+   5 concurrent jobs); all `n = 6` instrumentation (per-epoch purity, exact purity
+   on the 1020-word basis, certificates) within budget.
+6. **Done (2026-09-02).** The s4 smoke grid landed: `RESEARCH.md` §16. The register
+   pays on every cell (+0.04-0.07 accuracy over the §15 `pair_polar` rows; best
+   0.591 +- 0.012), the hard ladder trains at its capped variance, the certificate
+   spread doubled and stays anti-correlated with accuracy, and the coupling channel
+   is silent on the favourable chart. Top-up to 5 seeds awaits review.
+
+**Trig-interface program (user direction, 2026-09-02; D112, `dev/s5-trig-nodes/`).**
+The quantum arm's classical parts were purely linear; the node update is now an axis
+({linear, siren, elu}) with the block-2 re-encoding boundary instrumented. Gates and
+probe are `RESEARCH.md` §17-18: the boundary is not collapsed at init, the single-edge
+task is invariant-shaped (`m_ij` beats all angle-trig probes — `ALGEBRA.md`'s question
+in empirical form), and the sine node update pays beyond a matched-parameter control
+(siren 0.587 vs elu 0.565 vs linear 0.555 on the cycle), nearly matching the floored
+best at a 17x smaller DLA. Open: siren x {ladder, odd-chord} x mlp, `node_hidden`.
+
+**Afterwards, unchanged from the earlier plan:**
+
 - {MLP-only, QFM-only, MLP+QFM} x {raw, fixed whitening, learned preconditioner} x ansatz arm.
 - Scaling in event size and dataset size, against the classical baselines, citing PASCL and
   Kahn et al. as external reference points.
 - Read the known/unknown probe against its ceiling: distinct tree shapes are scarce at
   shallow depth (2 at three leaves, 4 at four, 8 at five for `max_depth=4`), which bounds
-  how many genuinely unseen topologies a dataset can hold.
+  how many genuinely unseen topologies a dataset can hold. `max_depth = 5` is a
+  requirement for the scale-up dataset (`RESEARCH.md` §10).
 
 ### 7. Writing
 Target narrative: an application leg connecting unflattening (trainability / input

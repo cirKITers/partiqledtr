@@ -474,8 +474,8 @@ wheels = [
 
 [[package]]
 name = "fluksio"
-version = "0.1.4+dev"
-source = { git = "https://git.stroblme.de/Fluksio/app?subdirectory=backend&rev=f370601aec3b92a52f363e839e2b5797f17b13d7#f370601aec3b92a52f363e839e2b5797f17b13d7" }
+version = "0.1.5+dev"
+source = { git = "https://git.stroblme.de/Fluksio/app?subdirectory=backend&rev=cc4091166ec4e537d26cea75c57bead9d9dcd06c#cc4091166ec4e537d26cea75c57bead9d9dcd06c" }
 dependencies = [
     { name = "alembic" },
     { name = "croniter" },
@@ -504,8 +504,8 @@ dependencies = [
 
 [[package]]
 name = "fluksio-worker"
-version = "0.1.4+dev"
-source = { git = "https://git.stroblme.de/Fluksio/app?subdirectory=worker&rev=f370601aec3b92a52f363e839e2b5797f17b13d7#f370601aec3b92a52f363e839e2b5797f17b13d7" }
+version = "0.1.5+dev"
+source = { git = "https://git.stroblme.de/Fluksio/app?subdirectory=worker&rev=cc4091166ec4e537d26cea75c57bead9d9dcd06c#cc4091166ec4e537d26cea75c57bead9d9dcd06c" }
 dependencies = [
     { name = "websockets" },
 ]
@@ -1085,12 +1085,12 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "flax", specifier = ">=0.12.9" },
-    { name = "fluksio", git = "https://git.stroblme.de/Fluksio/app?subdirectory=backend&rev=f370601aec3b92a52f363e839e2b5797f17b13d7" },
+    { name = "fluksio", git = "https://git.stroblme.de/Fluksio/app?subdirectory=backend&rev=cc4091166ec4e537d26cea75c57bead9d9dcd06c" },
     { name = "matplotlib", specifier = ">=3.9" },
     { name = "numpy", specifier = ">=2.3" },
     { name = "optax", specifier = ">=0.2.8" },
-    { name = "phasespace-jax", specifier = ">=2.0.0" },
-    { name = "qml-essentials", specifier = ">=0.2.3" },
+    { name = "phasespace-jax", git = "https://github.com/cirKITers/phasespace-jax?rev=9e2954f973fd77cc1dee6a3f901c61753b359b3f" },
+    { name = "qml-essentials", git = "https://github.com/cirKITers/qml-essentials?rev=4314e2ab9408458dcc3404d17ff0d46b390411ab" },
 ]
 
 [package.metadata.requires-dev]
@@ -1102,14 +1102,10 @@ dev = [
 
 [[package]]
 name = "phasespace-jax"
-version = "2.0.0"
-source = { registry = "https://pypi.org/simple" }
+version = "2.0.1.dev13+g9e2954f97"
+source = { git = "https://github.com/cirKITers/phasespace-jax?rev=9e2954f973fd77cc1dee6a3f901c61753b359b3f#9e2954f973fd77cc1dee6a3f901c61753b359b3f" }
 dependencies = [
     { name = "jax" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/21/0a/32ff98394e8011ecdcbcee8ebd355bc927f45e57133b64eb4daa4b514f7f/phasespace_jax-2.0.0.tar.gz", hash = "sha256:b14cb561185773154ed3ce74c905dd526d3d806c7c9e53988f6cb26211a2c51f", size = 229117, upload-time = "2026-08-26T14:09:20.575Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/47/c0/0959cca30bfbf79f919229012f8517c16440f2dd8193fdf03f10b2a9d21a/phasespace_jax-2.0.0-py3-none-any.whl", hash = "sha256:d51e80e1c928f36666426e487b91d2f9d1d468e3125e7bfd04be8d2749b1375b", size = 27767, upload-time = "2026-08-26T14:09:19.312Z" },
 ]
 
 [[package]]
@@ -1399,7 +1395,7 @@ wheels = [
 [[package]]
 name = "qml-essentials"
 version = "0.2.3"
-source = { registry = "https://pypi.org/simple" }
+source = { git = "https://github.com/cirKITers/qml-essentials?rev=4314e2ab9408458dcc3404d17ff0d46b390411ab#4314e2ab9408458dcc3404d17ff0d46b390411ab" }
 dependencies = [
     { name = "diffrax" },
     { name = "equinox" },
@@ -1408,10 +1404,6 @@ dependencies = [
     { name = "optax" },
     { name = "psutil" },
     { name = "scipy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/09/2b/10f92c3e7263845603f1f3b4b558b0348cc0a111520af94be1175448bd37/qml_essentials-0.2.3.tar.gz", hash = "sha256:add52a9e8a4dd0fa9b2d72b0fbe93a88c9216d3a925a08e5a24c9074fb9010ac", size = 8391925, upload-time = "2026-08-28T13:10:08.905Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/0a/76/934fb75592beb191269807c1d9407a2a6b3a6b627e5cda86f88ff0761aa2/qml_essentials-0.2.3-py3-none-any.whl", hash = "sha256:8f7fa671b430a8fc3a9c1984b90a5f57d2b22c40e6a8e1f2b6de6172a5694e09", size = 203349, upload-time = "2026-08-28T13:10:06.824Z" },
 ]
 
 [[package]]

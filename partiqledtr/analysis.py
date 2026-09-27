@@ -572,10 +572,10 @@ def dla_check(
 @node(
     # Circuit_19's Lie closure is slow and silent (D89).
     timeout=1800,
-    requires=[Port("ansatz", "str")],
+    requires=[Port("ansatz", "str"), Port("n_qubits", "int")],
     provides=[Port("dla_report", "json")],
 )
-def dla_report(*, ansatz: str = "XY_Brickwork", n_qubits: int = 4, max_dim: int = 2000) -> dict:
+def dla_report(*, ansatz: str = "XY_Brickwork", n_qubits: int = 4, max_dim: int = 4200) -> dict:
     """Record an ansatz arm's dynamical Lie algebra before any training.
 
     The ROADMAP asks for the DLA and floor count of each arm to be recorded
@@ -710,9 +710,7 @@ def encoding_cells(
             }
         report[f"{weights}-{reupload}"] = {
             "weights": matrix.astype(int).tolist(),
-            "n_freqs": [
-                int(encoding_spectrum(matrix, f, n_layers).size) for f in range(n_qubits)
-            ],
+            "n_freqs": [int(encoding_spectrum(matrix, f, n_layers).size) for f in range(n_qubits)],
             "dissociated": bool(np.all(np.any(signs @ matrix != 0, axis=1))),
             "swap_invariant": bool(np.array_equal(matrix[order][:, order], matrix)),
             "purity": purity,
