@@ -57,8 +57,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from fluksio import Port, node
+from jaqsi import PauliWord
 from qml_essentials.algebra import g_purity_from_basis, lie_closure_paulis
-from qml_essentials.operations import PauliWord
 
 from partiqledtr.ansaetze import circuit
 
