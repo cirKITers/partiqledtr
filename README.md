@@ -4,7 +4,7 @@ This repo facilitates to revive the former partiqlegan project.
 The goal is to reconstruct intermediate decay products based on simulated decay events as reference data.
 
 Tech stack:
-- qml-essentials : for quantum Fourier models and JAX based simulation
+- qml-essentials : for quantum Fourier models, simulated by its JAX backend jaqsi
 - phasespace-jax : JAX port of phasespace, for decay event generation
 - JAX : array computation and autodiff
 - Flax : neural network modules
