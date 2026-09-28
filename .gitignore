@@ -1,8 +1,8 @@
 AGENTS.md
 
-# The research record is the point of this repo, so it is tracked. Only editor
-# scratch and vendored papers are not.
+# Vendored papers, and the local research notes.
 reference
+docs/NOTEPAD.md
 
 # Everything a run produces or consumes: the engine's store, and each study's own
 # exported dataset splits, per-arm results, figures and logs. Reproducible from
