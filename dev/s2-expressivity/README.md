@@ -1,45 +1,45 @@
-# s2 — Expressivity: can the quantum arm be made to fit the task?
+# s2 — Quantum-arm expressivity
 
-**280 training runs**, every cell at 10 seeds, 40 epochs, on the 30k-event dataset.
-Three independent arms, each holding everything else at the baseline configuration
-(`XY_Brickwork`, Hamming weights, 2 layers) so only its own axis moves:
+## Question
 
-| arm | axis | question |
+Do greater depth, a richer encoding spectrum, or a different bond structure
+close the gap between the quantum arm and the classical GNN?
+
+## Method
+
+The study comprises 280 training runs on a 30,000-event dataset: 10 seeds per
+cell and 40 epochs. Each arm changes one axis from the baseline (`XY_Brickwork`,
+Hamming weights, two layers); trainable frequencies remain disabled.
+
+| arm | variable | test |
 | --- | --- | --- |
-| A | `n_layers` ∈ {2, 4, 8, 16} | is depth the bottleneck? |
-| B | `enc_weights` × `enc_reupload` | is the spectrum the bottleneck? |
-| C | `ansatz` ∈ 4 arms | is the bond structure the bottleneck? |
+| A | `n_layers` ∈ {2, 4, 8, 16} | depth |
+| B | `enc_weights` × `enc_reupload` | encoding spectrum |
+| C | four `ansatz` choices | bond structure |
 
-Trainable frequencies stay off in all three, so the axes remain separable.
+## Findings
 
-## What it found
+- None of the three changes closes the gap on known topologies. The classical
+  GNN reaches 0.949 accuracy and 0.731 Perfect-LCAG; the best quantum cell
+  reaches 0.453 and 0.087.
+- Eightfold greater frequency support through depth adds 0.063 accuracy. Every
+  dissociated encoding scores at or below the Hamming baseline. Single-qubit Z
+  also lies outside the DLA of every XY arm, preventing the preconditioner's
+  effect on the encoded state from reaching the loss through this readout.
+- `XY_Ring` is floor-free and partition-respecting. At equal parameter count,
+  it improves Perfect-LCAG by 27% and valid trees by 36% over the arm it
+  replaces. Study s3 tests an in-algebra readout.
 
-None of the three closes the gap. The classical GNN reaches 0.949 accuracy and
-0.731 Perfect-LCAG on known topologies; the best quantum cell reaches 0.453 and
-0.087. Depth buys +0.063 accuracy for 8× the frequency support; every dissociated
-encoding scores at or below the Hamming baseline.
-
-The result that reframes what is left: **the readout is outside the algebra.** The
-unflattening variance law needs the observable inside the DLA, and single-qubit Z is
-not in the DLA of any XY arm — so the preconditioner's effect on the encoded state has no
-channel to the loss. Putting the readout in the algebra is what s3
-(`dev/s3-readout-channel/`) tests.
-
-One arm did land: `XY_Ring` is floor-free *and* partition-respecting, and at equal
-parameter count gives +27% Perfect-LCAG and +36% valid trees over the arm it
-replaces.
-
-## How to re-run it
+## Reproduce
 
 ```sh
-dev/serve.sh                                     # the engine, on ./.fluksio
-dev/s2-expressivity/sweep.sh 10 10               # every arm, in order, at 10 seeds
-python dev/s2-expressivity/run.py --report       # the per-arm tables
-python dev/s2-expressivity/figures.py            # fig 1-3 and the csv behind fig 2
-dev/s2-expressivity/export.sh                    # the engine's own view, as csv
+dev/serve.sh
+dev/s2-expressivity/sweep.sh 10 10
+python dev/s2-expressivity/run.py --report
+python dev/s2-expressivity/figures.py
+dev/s2-expressivity/export.sh
 ```
 
-`run.py` also runs in process (`--arm c`, no `--fluksio`), which is the sandbox path
-rather than a fork of the flow — it calls the same `train_model` the `fit` node calls.
-Everything reads and writes this folder's own `data/`, `results/`, `figures/` and
-`logs/`, all gitignored and all reproducible from `generate`.
+The study's `data/`, `results/`, `figures/`, and `logs/` directories are
+reproducible and gitignored. Without `--fluksio`, `run.py --arm c` runs the same
+training code in process.

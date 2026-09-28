@@ -1,35 +1,34 @@
-# s1 — Encoding purity, before anything trains
+# s1 — Encoding purity before training
 
-**Question.** Does this task's input distribution land in the barren regime at all,
-and can a richer encoding spectrum move it there or out of it?
+## Question
 
-Spectral preconditioning is a property of *data plus encoding*, not of a trained
-model, so the whole question is answerable without fitting anything. That is what
-makes this study worth keeping separate: a training run can then confirm the answer
-rather than be the only evidence for it.
+Does the input distribution fall in the barren regime, and can the encoding
+spectrum change that?
 
-## What it found
+## Method
 
-- **The encoding decides the regime.** The project's own `pair_polar` map sits at
-  1.61 `mu_n`; partiqlegan's `p*E*pi` product sits at 0.28 with 85% of edges below
-  threshold. Only the legacy encoding reaches the clustered regime, which is why it
-  is now a deliberate control arm rather than a baseline to beat.
-- **Preconditioning is a contraction toward `mu_n`, not a rescue.** It lifts the
-  clustered arm 0.28 → 0.55 and drags `pair_polar` 1.61 → 1.0. Richer spectra help
-  only where the input distribution is worse than uniform.
-- `ternary_pair-cyclic` is the only weight cell that is both dissociated **and**
-  invariant under the endpoint swap — measured by exhaustion, not asserted.
+Measure g-purity from the data and encoding before fitting a model. The
+`generate` flow produces `encoding_report`; `characterize` produces
+`encoding_cells` and `arm_report` for the encoding-weight comparison.
 
-## How to re-run it
+## Findings
 
-The measurement itself is a flow node, so it is versioned and cached rather than
-living here: `encoding_report` runs inside `generate`, and `encoding_cells` and
-`arm_report` inside `characterize`. This folder holds the renderer, and its
-gitignored `results/` the exported reports of the runs the numbers above quote.
+- **Encoding determines the regime.** The `pair_polar` map reaches 1.61 `mu_n`;
+  partiqlegan's `p*E*pi` product reaches 0.28, with 85% of edges below the
+  threshold. Only the legacy encoding reaches the clustered regime, making it a
+  control arm.
+- **Preconditioning contracts purity toward `mu_n`.** It moves the clustered arm
+  from 0.28 to 0.55 and `pair_polar` from 1.61 to 1.0. Richer spectra help only
+  when the input distribution is worse than uniform.
+- `ternary_pair-cyclic` is the only weight cell that is both dissociated and
+  invariant under endpoint swaps, as verified exhaustively.
+
+## Reproduce
 
 ```sh
-fluksio run generate --sync partiqledtr --seed 0 --wait    # or reuse a finished run
+fluksio run generate --sync partiqledtr --seed 0 --wait
 python dev/s1-encoding-purity/encoding_table.py <generate-run-id>
-
-fluksio run characterize --sync partiqledtr --wait         # the prediction + arm table
+fluksio run characterize --sync partiqledtr --wait
 ```
+
+The renderer and gitignored `results/` exports are in this study directory.
