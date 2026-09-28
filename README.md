@@ -1,22 +1,16 @@
 # PartiqleDTR
 
-PartiqleDTR builds on the former partiqlegan project to reconstruct intermediate
-decay products from simulated events.
+This is a revived version of the initial attempt to tackle the particle **d**ecay **t**ree **r**econstruction problem using a hybrid (quantum-classical) graph neural network architecture.
+See the section below for details concerning the current approach.
+The project builds upon the same foundation as the [BaumBauen](https://github.com/helmholtz-ai-energy/baumbauen) project.
 
 Technology:
-- qml-essentials: quantum Fourier models, simulated with its JAX backend, jaqsi
-- phasespace-jax: JAX port of phasespace for decay event generation
+- [qml-essentials](https://github.com/cirKITers/qml-essentials): quantum Fourier models, simulated with its JAX backend, jaqsi
+- [phasespace-jax](https://github.com/cirKITers/phasespace-jax): JAX port of phasespace for decay event generation
 - JAX: array computation and automatic differentiation
 - Flax: neural network modules
 - Optax: optimization and training
 - Fluksio: data pipeline and experiment tracking
-
-References (`./reference/`, gitignored symlinks):
-- baumbauen: classical message-passing GNN
-- partiqlegan: hybrid quantum-classical approach
-- reconstructing-paper and improving-paper: papers on the hybrid approach
-- fourier-fingerprints: correlations between frequency components (FCC) of QFMs as an inductive-bias descriptor
-- unflattening: research on how quantum circuits depend on input distributions
 
 ## Architecture
 
@@ -32,7 +26,7 @@ parameter-free masked mean, and a per-node linear map. Cross-particle structure
 therefore comes from the quantum component. Readout uses per-qubit Pauli-Z
 measurements and a shared linear head, avoiding exponential readout size.
 
-Three flows organize the work: `generate` simulates events, `train` consumes those
+The project is organized in three flows: `generate` simulates events, `train` consumes those
 artifacts for each sweep cell, and `characterize` records DLA certificates,
 encoding cells, and the sampler's shape ceiling without a dataset. Fluksio caches
 node results by input, making unchanged stages cheap to rerun. `fit` uses
