@@ -1,19 +1,17 @@
 r"""Ansatz arms of the edge QFM, and the bond structure that motivates them.
 
-ROADMAP phase 4b arm C.  The edge QFM spends two qubits per particle, so at
-``n = 4`` qubits 0, 1 carry particle A's angles and 2, 3 carry particle B's, and
-the swap of the two endpoints acts on the wires as the permutation
-:math:`\pi = (0\,2)(1\,3)`.  An ansatz is *partition-respecting* when its bond
-set is invariant under :math:`\pi`; the edge function is then symmetric in its
-two endpoints by construction rather than by the output averaging of
-``DECISIONS.md`` D35.
+The edge QFM spends two qubits per particle, so at ``n = 4`` qubits 0, 1 carry
+particle A's angles and 2, 3 carry particle B's, and the swap of the two
+endpoints acts on the wires as the permutation :math:`\pi = (0\,2)(1\,3)`.  An
+ansatz is *partition-respecting* when its bond set is invariant under
+:math:`\pi`; the edge function is then symmetric in its two endpoints by
+construction rather than by symmetrising the output afterwards.
 
-``XY_Brickwork``, the phase-3/4 arm, is not: its bonds ``(0,1), (1,2), (2,3)``
+``XY_Brickwork``, the original arm, is not: its bonds ``(0,1), (1,2), (2,3)``
 put two of three inside a particle and join ``alpha_A`` to ``phi_B`` with the
-third (``RESEARCH.md`` §9).  Replacing the odd brick layer with the span-2
-bonds fixes exactly that, and the qml-essentials topologies spell both out --
-``Topology.bricks(offset=0)`` is ``(0,1), (2,3)`` and
-``Topology.stairs(span=2)`` is ``(0,2), (1,3)``.
+third.  Replacing the odd brick layer with the span-2 bonds fixes exactly that,
+and the qml-essentials topologies spell both out -- ``Topology.bricks(offset=0)``
+is ``(0,1), (2,3)`` and ``Topology.stairs(span=2)`` is ``(0,2), (1,3)``.
 
 Measured at ``n = 4`` (:func:`partiqledtr.analysis.dla_check`):
 
@@ -25,19 +23,19 @@ Measured at ``n = 4`` (:func:`partiqledtr.analysis.dla_check`):
 
 ``XY_Ring`` is the 4-cycle ``0-1-3-2-0``.  Even cycles are bipartite, which is
 the unflattening manuscript's graph criterion for :math:`d_Z = 0`, so it is
-partition-respecting *and* still input-distribution sensitive -- the two
-criteria the ROADMAP expected to pull apart.  ``XY_AllPairs`` adds the
-triangles: an odd cycle rebuilds the diagonal sector, giving a floored control
-that respects the partition as well.
+partition-respecting *and* still input-distribution sensitive: at ``n = 4`` the
+two criteria do not pull apart.  ``XY_AllPairs`` adds the triangles: an odd
+cycle rebuilds the diagonal sector, giving a floored control that respects the
+partition as well.
 
 Bonds alone do not give equivariance, though: :math:`\pi` maps ``(0,1)`` to
 ``(2,3)``, so the two gates of that orbit must carry the *same* angle, which is
 what ``Block(shared=True)`` ties.  The span-2 gates map to themselves and need
 no tying.
 
-ROADMAP phase 6 scales the register to three qubits per particle, where the swap
-is :math:`\pi = (0\,3)(1\,4)(2\,5)` and the three graph arms share the
-intra-particle chains ``(0,1), (1,2), (3,4), (4,5)``.  Measured at ``n = 6``:
+The ``n = 6`` graph arms use three qubits per particle, where the swap is
+:math:`\pi = (0\,3)(1\,4)(2\,5)` and all three share the intra-particle chains
+``(0,1), (1,2), (3,4), (4,5)``.  Measured at ``n = 6``:
 
     ansatz       extra bonds   dim_g/4095  d_Z  pi-invariant
     XY_Cycle     03, 25                60    0  yes
@@ -102,8 +100,8 @@ class XY_AllPairs(DeclarativeCircuit):
     The bond set is :math:`\pi`-invariant, but ``all_pairs`` is one block, so the
     orbits ``{(0,1),(2,3)}`` and ``{(0,3),(1,2)}`` are not tied and the layer is
     equivariant only in its bonds.  Its role is the floored control -- the floor
-    is a property of the algebra, not of the parameterisation -- and the output
-    averaging of D35 supplies the rest of the symmetry.
+    is a property of the algebra, not of the parameterisation -- and symmetrising
+    the output supplies the rest of the symmetry.
     """
 
     @classmethod
@@ -115,7 +113,7 @@ class XY_AllPairs(DeclarativeCircuit):
 def _graph6(n_qubits: int, *, edges: tuple[tuple[int, int], ...]) -> list[tuple[int, int]]:
     """``Topology.graph`` pinned to six qubits.
 
-    The phase-6 arms are written as explicit edge lists at the study size, so at
+    The ``n = 6`` arms are written as explicit edge lists at the study size, so at
     any other register the same list would silently be a different graph (a
     subgraph at ``n > 6``); failing loudly is what keeps the certificates honest.
     """
@@ -124,7 +122,7 @@ def _graph6(n_qubits: int, *, edges: tuple[tuple[int, int], ...]) -> list[tuple[
     return Topology.graph(n_qubits, edges=edges)
 
 
-#: The intra-particle chains every phase-6 graph arm shares, one ``_xy`` block
+#: The intra-particle chains every ``n = 6`` graph arm shares, one ``_xy`` block
 #: pair per pi-orbit: pi maps (0,1) to (3,4) and (1,2) to (4,5), so each orbit
 #: ties its angle (``shared=True``), exactly the ``XY_Ring`` mechanism.
 _CHAIN_ORBITS = (((0, 1), (3, 4)), ((1, 2), (4, 5)))
@@ -141,7 +139,7 @@ class XY_Cycle(DeclarativeCircuit):
 
     The intra-particle chains plus the end rungs ``(0,3), (2,5)``.  An even cycle
     is bipartite, so ``d_Z = 0`` (measured: ``dim_g = 60``), and the bond set is
-    :math:`\pi`-invariant with the rungs :math:`\pi`-fixed.  The phase-6 analogue
+    :math:`\pi`-invariant with the rungs :math:`\pi`-fixed.  The ``n = 6`` analogue
     of ``XY_Ring``, which is this construction at ``n = 4``.
     """
 
@@ -187,9 +185,9 @@ class XY_OddChord(DeclarativeCircuit):
 
 #: Ansatz arms, name -> circuit class.  ``Model`` takes either a name it knows or
 #: a class, so a project arm needs no fork of qml-essentials.  ``XY_Brickwork`` is
-#: kept as the phase-3/4 continuity control and ``Circuit_19`` as the universal
-#: leg of the DLA trichotomy; ``Matchgate`` was retired in phase 4b, its floored
-#: role taken over by ``XY_AllPairs``, which also respects the partition.
+#: kept as the original arm for continuity and ``Circuit_19`` as the universal
+#: leg of the DLA trichotomy; ``Matchgate`` is retired, its floored role taken
+#: over by ``XY_AllPairs``, which also respects the partition.
 ANSAETZE: dict[str, type[DeclarativeCircuit]] = {
     "XY_Brickwork": Ansaetze.XY_Brickwork,
     "XY_Ring": XY_Ring,
@@ -197,9 +195,9 @@ ANSAETZE: dict[str, type[DeclarativeCircuit]] = {
     "Circuit_19": Ansaetze.Circuit_19,
 }
 
-#: The phase-6 graph arms, defined at ``n = 6`` only.  A separate registry so the
-#: phase-4b surfaces that iterate :data:`ANSAETZE` at ``n = 4`` (``arm_report``,
-#: the parametrised tests) keep their meaning; :func:`circuit` resolves both.
+#: The graph arms, defined at ``n = 6`` only.  A separate registry so the
+#: surfaces that iterate :data:`ANSAETZE` at ``n = 4`` (``arm_report``, the
+#: parametrised tests) keep their meaning; :func:`circuit` resolves both.
 ANSAETZE_N6: dict[str, type[DeclarativeCircuit]] = {
     "XY_Cycle": XY_Cycle,
     "XY_Ladder": XY_Ladder,
@@ -210,11 +208,10 @@ ANSAETZE_N6: dict[str, type[DeclarativeCircuit]] = {
 def circuit(name: str) -> type[DeclarativeCircuit]:
     """Resolve an ansatz name to its circuit class.
 
-    A phase-4b arm from :data:`ANSAETZE` first, then a phase-6 arm from
+    An ``n = 4`` arm from :data:`ANSAETZE` first, then an ``n = 6`` arm from
     :data:`ANSAETZE_N6`, then any ansatz qml-essentials ships.  The split is what
     "retired" means here: ``Matchgate`` is no longer a reported arm but stays
-    certifiable and runnable, so the phase-4 cells of ``RESEARCH.md`` §7 remain
-    reproducible.
+    certifiable and runnable, so earlier runs on it remain reproducible.
 
     Args:
         name: Ansatz name.
@@ -265,7 +262,7 @@ def swap_invariant(ansatz: str, n_qubits: int) -> bool:
     With two qubits per particle the swap of an edge's two endpoints acts on the
     wires as :math:`\pi = (0\,2)(1\,3)` at ``n = 4``, and generally as the shift by
     half the register.  A ``True`` here is what makes the edge function symmetric
-    by construction rather than by the output averaging of ``DECISIONS.md`` D35.
+    by construction rather than by symmetrising the output afterwards.
 
     Args:
         ansatz: Ansatz name.

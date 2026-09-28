@@ -1,4 +1,4 @@
-"""The one-figure summary of the phase-4c study (RESEARCH §15).
+"""The one-figure summary of the s3 full grid.
 
 Four panels, one claim each: (a) the preconditioner rescues the clustered
 distribution to the uniform-prior band; (b) the loss descends alongside; (c) the

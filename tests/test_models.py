@@ -172,5 +172,5 @@ def test_rejects_invalid_arguments(cls, kwargs, match):
 def test_registries_expose_the_selectable_components():
     assert MODELS["gnn"] is LCAGGNN
     assert MODELS["mlp"] is MLPBaseline
-    assert set(MODELS) == {"gnn", "mlp", "qfm"}  # "qfm" is the phase-3 arm
+    assert set(MODELS) == {"gnn", "mlp", "qfm"}  # "qfm" is the quantum arm
     assert PRECONDITIONERS == {"none": None, "mlp": ElementwiseResidualMLP}

@@ -1,4 +1,4 @@
-"""The one-figure summary of the phase-6 grid (RESEARCH §20), drawn the way s3's is.
+"""The one-figure summary of the s4 grid, drawn the way s3's is.
 
 Four panels over the three graph arms: (a) the g-purity trajectory, (b) the
 validation loss alongside it, (c) the per-epoch purity-loss coupling of the
@@ -65,7 +65,7 @@ def export() -> None:
             "algebra": "floored" if record["dla_report"]["n_diag_words"] else "floor-free",
             "preconditioner": cell["preconditioner"],
             "seed": cell["seed"],
-            # Seeds 0-2 ran in process on the pre-jaqsi stack and were imported (D114).
+            # Seeds 0-2 ran in process on the pre-jaqsi stack and were imported.
             "source": "import" if record.get("imported") else "engine",
             "run": record.get("run", ""),
             "acc_known": f"{known['accuracy']:.4f}",
@@ -153,7 +153,7 @@ def plot() -> None:
             sel = [r for r in rows if r["ansatz"] == arm and r["preconditioner"] == pre]
             _band(pur, sel, "g_purity_over_mu", COLOR[arm], style, f"{NAME[arm]}, {suffix}")
             _band(loss, sel, "val_loss", COLOR[arm], style, f"{NAME[arm]}, {suffix}")
-    # Below the line: every arm starts at or above it on this chart (D111).
+    # Below the line: every arm starts at or above it on this chart.
     pur.axhline(1.0, color="black", ls=":", lw=0.8)
     pur.text(0.5, 0.98, r"uniform-prior mean $\mu_n$", ha="left", va="top", fontsize=8)
     pur.set_ylim(0.9, 2.45)  # headroom for the legend

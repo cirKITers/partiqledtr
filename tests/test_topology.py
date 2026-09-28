@@ -128,15 +128,15 @@ def test_sample_topologies_groups_are_pairwise_non_isomorphic():
     flat = [topology for group in groups for topology in group]
     assert len({canonical_form(topology) for topology in flat}) == len(flat)
     assert {count_fsps(topology) for topology in flat} == {3, 4, 5, 6, 7, 8}
-    # Shapes are distinct as *unlabelled trees*, which is what the LCAG label sees
-    # (D82) -- a stronger property than the mass-labelled form asserted above.
+    # Shapes are distinct as *unlabelled trees*, which is what the LCAG label sees --
+    # a stronger property than the mass-labelled form asserted above.
     assert len({shape_form(topology) for topology in flat}) == len(flat)
     for group in groups:
         # Every group has to span most of the range, not just the collection as a
         # whole, so the known/unknown probe is not secretly a multiplicity probe.
         # Not *all* of it: at three leaves and max_depth=4 there are only a couple
         # of distinct shapes in existence, so a slot whose count is exhausted falls
-        # through to another one (D82).
+        # through to another one.
         assert len({count_fsps(topology) for topology in group}) >= 5
 
 

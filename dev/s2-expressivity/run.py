@@ -1,26 +1,26 @@
-"""ROADMAP phase 4b: the three expressivity arms, run in process.
+"""The three expressivity arms, run in process.
 
 The nodes are plain functions, so an arm needs no engine: this calls
 :func:`partiqledtr.train.train_model` and :func:`partiqledtr.train.evaluate_split`
 directly on dataset splits read from disk. The Fluksio flows in
 :mod:`partiqledtr.pipeline` are unchanged and still describe the same work, so the
 study is re-runnable through the engine whenever that is wanted -- this driver is
-the sandbox path, not a fork of it (``DECISIONS.md`` D104).
+the sandbox path, not a fork of it.
 
-Arms, deliberately independent -- each holds everything else at the phase-4
-configuration so its axis is the only thing that moves:
+Arms, deliberately independent -- each holds everything else at the baseline
+configuration (:data:`BASE`) so its axis is the only thing that moves:
 
-* **A, depth.** ``n_layers`` 2, 4, 8, 16 on the phase-4 arm. The per-feature
+* **A, depth.** ``n_layers`` 2, 4, 8, 16 on the baseline. The per-feature
   spectrum is ``2L + 1``, so this is the cheapest test of "is expressivity the
   bottleneck" and it changes nothing else. Run last: deep circuits are unrolled,
   so their *compile* cost dominates even though the step cost is flat in depth.
 * **B, encoding weights.** ``enc_weights`` x ``enc_reupload``, crossed with the raw
   and learned preconditioners, plus the clustered ``legacy`` encoding where the
   manuscript's jitter amplification has room to act.
-* **C, ansatz.** The partition-respecting arms against the phase-4 one, crossed
-  with the preconditioner.
+* **C, ansatz.** The partition-respecting arms against the baseline's
+  ``XY_Brickwork``, crossed with the preconditioner.
 
-Every cell runs at ``--seeds`` seeds, because the differences in ``RESEARCH.md``
+Every cell runs at ``--seeds`` seeds, because the differences between cells
 are small enough that a single seed says nothing.
 
     python dev/s2-expressivity/run.py --arm c                 # in process
@@ -49,9 +49,9 @@ BASE: dict[str, Any] = {"model": "qfm", "encoding": "cartesian", "ansatz": "XY_B
 ANSATZ_ARMS = ("XY_Brickwork", "XY_Ring", "XY_AllPairs", "Circuit_19")
 
 #: Arm B's cells, chosen so each isolates a different thing rather than filling the
-#: grid: the phase-4 baseline, mixing without enrichment, enrichment of the angle
+#: grid: the baseline, mixing without enrichment, enrichment of the angle
 #: without enrichment of the comb, the dose-response in spectrum size, and the cell
-#: that is dissociated *and* endpoint-equivariant (D100).
+#: that is dissociated *and* endpoint-equivariant.
 WEIGHT_CELLS = (
     ("hamming", "diagonal"),
     ("hamming", "cyclic"),
@@ -99,7 +99,7 @@ def cells(arm: str) -> list[dict[str, Any]]:
 def _already_run(out: Path) -> set[str]:
     """Every cell that has finished, in any arm's file.
 
-    Arms share cells -- the phase-4 baseline belongs to all three -- so a per-arm
+    Arms share cells -- the baseline belongs to all three -- so a per-arm
     check submits the same configuration once per arm and pays for it twice, which
     the engine export made visible as fourteen runs where seven would do.
     """
@@ -227,7 +227,7 @@ def run_arm_fluksio(
 
     path = out / f"arm_{arm}.json"
     done: list[dict[str, Any]] = json.loads(path.read_text()) if path.exists() else []
-    # Across every arm, not just this one: the phase-4 baseline is a cell of all
+    # Across every arm, not just this one: the baseline is a cell of all
     # three, and submitting it per arm ran it twice for identical numbers.
     seen = _already_run(out)
     queue = [
@@ -290,11 +290,11 @@ def _mean(values: list[Any], places: int = 3) -> str:
 def report(paths: list[Path]) -> None:
     """Print one markdown table per arm, averaged over seeds.
 
-    Read the **known** subset (RESEARCH.md §9): the test split is 94% unknown
-    topologies by construction, so an overall number is dominated by a subset
-    nothing solves. Purity is start -> end, because the phase-4 observable is a
-    trajectory rather than a level, and it is reported **in units of that arm's own
-    uniform-prior mean** -- `mu_n` is 0.8125 for `XY_Brickwork`, 1.25 for `XY_Ring`
+    Read the **known** subset: the test split is 94% unknown topologies by
+    construction, so an overall number is dominated by a subset nothing solves.
+    Purity is start -> end, because the purity observable is a trajectory rather
+    than a level, and it is reported **in units of that arm's own uniform-prior
+    mean** -- `mu_n` is 0.8125 for `XY_Brickwork`, 1.25 for `XY_Ring`
     and 15 for `Circuit_19`, so raw purities are not comparable across arm C.
     """
     from partiqledtr.analysis import uniform_prior_mean
@@ -321,14 +321,14 @@ def report(paths: list[Path]) -> None:
 
             # `*_repaired` where a now-retired repair script recomputed the
             # observable on a representative subset; the raw keys are what the run
-            # recorded on the biased one (D105), and are not comparable across cells.
+            # recorded on the biased one, and are not comparable across cells.
             def _p(record: dict[str, Any], name: str) -> float | None:
                 return record.get(f"{name}_repaired", record.get(name))
 
             # `_p` prefers a repaired value where one exists -- the preconditioner-free
             # cells, whose observable was recomputed exactly offline -- and otherwise
             # takes the recorded one, which every remaining record produced after the
-            # D105 fix, so there is no longer an untrustworthy end value to flag.
+            # purity-subset fix, so there is no longer an untrustworthy end value to flag.
             start = _mean([v / mu for f in final if (v := _p(f, "g_purity_initial"))], 2)
             end = _mean([v / mu for f in final if (v := _p(f, "val_g_purity"))], 2)
             print(
@@ -349,9 +349,10 @@ def main() -> None:
     parser.add_argument("--arm", choices=["a", "b", "c", "baseline"])
     parser.add_argument("--seeds", type=int, default=3)
     parser.add_argument("--jobs", type=int, default=6)
-    # 40, to match the ceiling check of RESEARCH.md §9 -- the table phase 4b exists
-    # to beat. The quantum arm's loss was flat there from epoch 5, so 40 separates
-    # "learns" from "does not" at 60% less cost than the flow default.
+    # 40, to match the earlier ceiling check of the QFM against the classical GNN --
+    # the table this study exists to beat. The quantum arm's loss was flat there
+    # from epoch 5, so 40 separates "learns" from "does not" at 60% less cost than
+    # the flow default.
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--out", type=Path, default=OUT)
     parser.add_argument("--report", action="store_true")

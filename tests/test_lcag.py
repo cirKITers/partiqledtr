@@ -164,7 +164,7 @@ def test_is_valid_lcag_accepts_golden():
 
 
 def test_lcag_to_adjacency_ignores_the_diagonal():
-    # pad_events writes -1 on the diagonal (D17) and models predict the ignore label
+    # pad_events writes -1 on the diagonal and models predict the ignore label
     # there, so the diagonal must not decide validity.
     ignored = np.array(EXAMPLE_1_LCAG)
     np.fill_diagonal(ignored, -1)
@@ -302,7 +302,7 @@ def _lcag_from_adjacency(adjacency, n_leaves):
 
 
 def test_lcag_roundtrip_reproduces_a_real_lcag_and_exposes_a_greedy_acceptance():
-    """The strict test the greedy reconstruction is not (D85).
+    """The strict test the greedy reconstruction is not.
 
     A genuine LCAG re-derives itself exactly. A matrix the greedy reconstruction
     accepts need not: it reduces to *a* tree, but not to one that would produce it

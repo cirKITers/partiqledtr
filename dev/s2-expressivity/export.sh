@@ -16,7 +16,7 @@
 # `results/arm_*.json` because those also hold the pre-engine in-process runs;
 # once every cell has been re-run through the engine, this file is the source.
 #
-# SINCE excludes runs that predate the purity-subset fix (D105), whose recorded
+# SINCE excludes runs that predate the purity-subset fix, whose recorded
 # observable was measured on a biased subset and is not comparable. Runs before it
 # are still in the engine and still legitimate as history; they are simply not this
 # table's rows.
@@ -27,7 +27,7 @@ export FLUKSIO_URL=${FLUKSIO_URL:-http://127.0.0.1:8765}
 export FLUKSIO_TOKEN=${FLUKSIO_TOKEN:-$(python3 -c "import json;print(json.load(open('.fluksio/client.json'))['token'])")}
 mkdir -p dev/s2-expressivity/figures
 
-# `frontend` is what the 280 phase-4b runs recorded; the axis was renamed to
+# `frontend` is what this study's 280 runs recorded; the axis was renamed to
 # `preconditioner` afterwards, and the engine keeps each run's own name.
 PARAMS=model,ansatz,enc_weights,enc_reupload,n_layers,preconditioner,frontend,encoding,angle_map,seed,epochs
 METRICS=final_metrics.train_loss,final_metrics.n_params,final_metrics.g_purity_initial

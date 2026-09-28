@@ -1,11 +1,11 @@
-"""ROADMAP phase 4c item 1: does the in-algebra readout open the purity-loss channel?
+"""Does the in-algebra readout open the purity-loss channel?
 
-Phase 4b measured a preconditioner that moves the encoded distribution over a
-190-fold purity range while the task loss barely responds -- under a readout whose
-observable purity is zero on every floor-free arm (``FINDINGS.md`` §2). D107 put
-the readout in the algebra; this study measures the thing that fix exists to
-enable: whether the g-purity trajectory and the loss become correlated *within* a
-run, ROADMAP 4c's success criterion.
+The s2 expressivity study measured a preconditioner that moves the encoded
+distribution over a 190-fold purity range while the task loss barely responds --
+under a per-qubit Z readout whose observable purity is zero on every floor-free
+arm. The readout is now in the algebra (``<XX_b> + <YY_b>`` per coupling bond);
+this study measures the thing that fix exists to enable: whether the g-purity
+trajectory and the loss become correlated *within* a run.
 
 Smoke block first, 10 runs: ``XY_Ring`` x {none, mlp} on the clustered ``legacy``
 encoding at 5 seeds. The clustered arm is where the prediction is falsifiable --
@@ -19,7 +19,7 @@ at all.
 
 Runs in process against the splits ``dev/s2-expressivity/data`` exported from
 generate run ``1787760161002-8bde9189`` -- the same data, deliberately, so the
-readout is the only thing that moved between the studies (D104, D107).
+readout is the only thing that moved between the studies.
 
     python dev/s3-readout-channel/run.py            # run the smoke block
     python dev/s3-readout-channel/run.py --report   # tables + correlations
@@ -55,21 +55,22 @@ TRACE_KEYS = ("epoch", "train_loss", "val_loss", "g_purity", "tv_uniform", "mean
 def cells(n_channels: int = 1) -> list[dict[str, Any]]:
     """The smoke block: the learned preconditioner against its frozen control.
 
-    ``n_channels > 1`` is the D108 widening dose; the key is added only then, so
-    the widened cells dedup against their own records and not the narrow ones.
+    ``n_channels > 1`` is the widening dose (that many parallel QFMs per block);
+    the key is added only then, so the widened cells dedup against their own
+    records and not the narrow ones.
     """
     wide = {"n_channels": n_channels} if n_channels > 1 else {}
     return [{**BASE, **wide, "preconditioner": f} for f in ("none", "mlp")]
 
 
 def cells_opt() -> list[dict[str, Any]]:
-    """The optimizer smoke: per-group learning rates at the widened dose (D109).
+    """The optimizer smoke: per-group learning rates at the widened dose.
 
     Against the K=4 shared-rate baselines already in ``smoke.json``. The MLP
     rate moves down and up around the shared 1e-3 (is the accuracy cost of the
     preconditioner an optimisation artifact?); the circuit rate moves up with
-    and without the preconditioner (RESEARCH §7 saw the rescue at 1e-2, and the
-    ``none`` cell says whether a faster circuit helps regardless).
+    and without the preconditioner (an earlier learning-rate sweep saw the rescue
+    at 1e-2, and the ``none`` cell says whether a faster circuit helps regardless).
     """
     wide = {**BASE, "n_channels": 4}
     return [
@@ -81,10 +82,10 @@ def cells_opt() -> list[dict[str, Any]]:
 
 
 def cells_full() -> list[dict[str, Any]]:
-    """The full phase-4c grid, at the widened dose and the §14 optimizer pick.
+    """The full grid, at the widened dose and the optimizer smoke's pick.
 
     ``lr_qfm = 1e-2`` throughout (the circuit must track the latent distribution
-    the preconditioner moves; RESEARCH §14), everything else at the shared 1e-3.
+    the preconditioner moves), everything else at the shared 1e-3.
     Arms: both floor-free ansaetze x {none, mlp} x {clustered legacy, pair_polar},
     plus the floored ``XY_AllPairs`` specificity control, where the purity-loss
     correlation must be absent.
@@ -121,7 +122,7 @@ def load(name: str) -> dict[str, Any]:
 
 
 def one_cell(settings: dict[str, Any], epochs: int) -> dict[str, Any]:
-    """Fit one cell exactly as the ``train`` flow's nodes would (D104)."""
+    """Fit one cell exactly as the ``train`` flow's nodes would."""
     import numpy as np
 
     from partiqledtr.analysis import dla_check
@@ -284,12 +285,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seeds", type=int, default=5)
     parser.add_argument("--jobs", type=int, default=5)
-    # 40, matching phase 4b so the numbers are comparable run for run.
+    # 40, matching s2 so the numbers are comparable run for run.
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--out", type=Path, default=OUT)
-    parser.add_argument("--channels", type=int, default=1, help="D108 widening dose")
-    parser.add_argument("--opt", action="store_true", help="run the D109 optimizer block")
-    parser.add_argument("--full", action="store_true", help="run the full phase-4c grid (§14 pick)")
+    parser.add_argument("--channels", type=int, default=1, help="widening dose: QFMs per block")
+    parser.add_argument("--opt", action="store_true", help="run the per-group learning-rate block")
+    parser.add_argument("--full", action="store_true", help="run the full grid (lr_qfm=1e-2)")
     parser.add_argument("--report", action="store_true")
     args = parser.parse_args()
 

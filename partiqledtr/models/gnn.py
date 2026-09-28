@@ -1,4 +1,4 @@
-"""NRI-style message-passing baseline for LCAG prediction (ROADMAP phase 2)."""
+"""NRI-style message-passing baseline for LCAG prediction."""
 
 import jax
 import jax.numpy as jnp
@@ -58,7 +58,7 @@ def _edge_mask(mask: jax.Array) -> jax.Array:
 class MLPBlock(nnx.Module):
     """Two-layer ELU perceptron applied to the trailing axis.
 
-    The only nonlinear unit of both phase-2 baselines:
+    The only nonlinear unit of both classical baselines:
     :class:`partiqledtr.models.mlp.MLPBaseline` reuses it so the two differ *only* in
     message passing.
 
@@ -126,8 +126,8 @@ class LCAGGNN(nnx.Module):
     the particle axis and invariant to whatever sits in the padded rows. The output is
     symmetrised architecturally because the LCAG is symmetric by construction.
 
-    The parameter-matched and unconstrained variants of ROADMAP phase 2 are two values
-    of ``dim``, not two classes.
+    The parameter-matched and unconstrained variants are two values of ``dim``, not
+    two classes.
 
     Args:
         n_features: Number of per-particle input features ``F``.

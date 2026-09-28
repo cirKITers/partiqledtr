@@ -7,7 +7,7 @@ from partiqledtr.data.dataset import ENCODINGS, SPLITS, assemble_dataset, datase
 
 pytestmark = pytest.mark.gen
 
-# per_group (2) has to reach the FSP span (D83), and the *shapes* have to exist:
+# per_group (2) has to reach the FSP span, and the *shapes* have to exist:
 # at max_depth 4 there are 4 distinct four-leaf shapes and 8 five-leaf ones, so six
 # distinct topologies fit comfortably. At max_depth 3 there would be only 3 + 3.
 SMALL = {
@@ -77,7 +77,7 @@ def test_assembly_is_reproducible_and_seed_sensitive():
 
 
 def test_known_unknown_split_integrity(dataset):
-    """Group A feeds every split, B only val and test, C only test (D16)."""
+    """Group A feeds every split, B only val and test, C only test."""
     splits, meta = dataset
     group = np.asarray(meta["topology_group"])
     groups_in = {
@@ -118,7 +118,7 @@ def test_statistics_report_marginals_balance_and_integrity(dataset):
     assert all(payload.startswith(b"\x89PNG") for payload in figures.values())
 
     assert len(stats["class_counts"]) == meta["n_classes"]
-    assert stats["class_counts"][0] == 0  # class 0 is never a label (D49)
+    assert stats["class_counts"][0] == 0  # class 0 is never a label
     assert sum(stats["class_counts"]) > 0
     for key in ("theta_circular_variance", "phi_circular_variance"):
         assert 0.0 <= stats["angles"][key] <= 1.0

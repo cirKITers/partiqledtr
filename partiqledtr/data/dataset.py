@@ -1,11 +1,11 @@
-"""Dataset assembly and the generation flow's nodes (ROADMAP phase 1).
+"""Dataset assembly and the generation flow's nodes.
 
 The heavy lifting lives in :func:`assemble_dataset` and :func:`dataset_statistics`,
 which are plain functions returning arrays: Fluksio's ``save_artifact`` raises
 outside a running node, so keeping the pure part separate is what makes the
 pipeline testable without an engine.
 
-Splits follow the known/unknown topology scheme (``DECISIONS.md`` D16): with three
+Splits follow the known/unknown topology scheme of baumbauen: with three
 topology groups, group A's events are spread over train, validation and test,
 group B's over validation and test, and group C's go to test alone. Evaluating on
 the test split therefore measures generalisation to unseen topologies as well as
@@ -34,12 +34,12 @@ from partiqledtr.data.topology import canonical_form, count_fsps, sample_topolog
 
 __all__ = ["assemble_dataset", "build_dataset", "dataset_statistics", "dataset_stats", "load_split"]
 
-#: Feature encodings stored in every split (D19). ``"legacy"`` is the clustered
-#: control arm of D80, not a candidate encoding.
+#: Feature encodings stored in every split. ``"legacy"`` is the deliberately
+#: clustered control arm, not a candidate encoding.
 ENCODINGS = ("angles", "cartesian", "legacy")
 SPLITS = ("train", "val", "test")
 
-# Which splits each topology group may contribute events to (D16).
+# Which splits each topology group may contribute events to.
 _GROUP_SPLITS: tuple[tuple[str, ...], ...] = (("train", "val", "test"), ("val", "test"), ("test",))
 
 
@@ -75,13 +75,13 @@ def assemble_dataset(
     """Sample topologies, generate events and assemble the three dataset splits.
 
     Both feature encodings are stored side by side so the ablation arms never have
-    to re-run phase-space generation (``DECISIONS.md`` D19). Normalisation scales
-    are fitted on the training split alone and applied to all three.
+    to re-run phase-space generation. Normalisation scales are fitted on the
+    training split alone and applied to all three.
 
     Args:
         seed: Master seed; every random stream is derived from it.
         n_topologies: Topologies **per group**, so the total is
-            ``n_groups * n_topologies`` (``DECISIONS.md`` D3 note).
+            ``n_groups * n_topologies``.
         n_events_per_topology: Unweighted events generated per topology.
         min_fsps: Smallest final-state particle count to sample.
         max_fsps: Largest final-state particle count; also the padded width ``L``.
@@ -91,12 +91,12 @@ def assemble_dataset(
         isp_weight: Relative weight of the intermediate-state mass pool.
         n_groups: Number of topology groups; 3 gives the known/unknown scheme.
         probe_events: Events a candidate topology must produce within the probe
-            budget to be kept (``DECISIONS.md`` D90).
+            budget to be kept.
         max_draws: Draw budget of the *real* per-topology generation.
         probe_margin: How much stricter the probe is than the real generation, in
-            acceptance rate (``DECISIONS.md`` D101). At 1 the probe demands exactly
-            the rate the run needs, which sampling noise at ``probe_events`` events
-            is enough to get wrong; 2 puts the boundary about four sigma clear.
+            acceptance rate. At 1 the probe demands exactly the rate the run needs,
+            which sampling noise at ``probe_events`` events is enough to get wrong;
+            2 puts the boundary about four sigma clear.
         probe_draws: Upper cap on the probe budget. Scaled so the probe costs a small
             fraction of the real generation while still resolving the acceptance
             rates that matter.
@@ -130,8 +130,8 @@ def assemble_dataset(
     # The probe is only meaningful if it demands at least the acceptance rate the
     # real generation needs. A fixed budget does not: at 32 events in 2e6 draws it
     # passes anything above 1.6e-5, while 1000 events in 4e7 draws needs 2.5e-5, so
-    # a topology in between passes and then kills the run ten minutes later -- which
-    # it did (``DECISIONS.md`` D101). Proportional, times the margin.
+    # a topology in between passes and then kills the run ten minutes later.
+    # Proportional, times the margin.
     budget = min(
         probe_draws, int(max_draws * probe_events / (probe_margin * n_events_per_topology))
     )
@@ -139,10 +139,10 @@ def assemble_dataset(
     def viable(topology: dict) -> bool:
         """Whether a topology can be sampled inside the per-topology draw budget.
 
-        A decay whose daughters nearly saturate the parent mass has almost no phase
-        space, so unweighting rejects nearly every draw and generation cannot finish
-        (``DECISIONS.md`` D90). Probing costs a fraction of the real generation and
-        keeps the rejection inside the sampler, where shape uniqueness is tracked.
+        Some decays have so peaked a weight distribution that unweighting rejects
+        nearly every draw and generation cannot finish, and no mass-ratio rule
+        predicts which. Probing costs a fraction of the real generation and keeps
+        the rejection inside the sampler, where shape uniqueness is tracked.
         """
         try:
             generate_events(topology, probe_events, seed, max_draws=budget)
@@ -234,7 +234,7 @@ def assemble_dataset(
         "topology_group": topology_group,
         "topology_form": topology_form,
         # Unlabelled shapes, which is what the LCAG label sees: distinct across all
-        # topologies by construction, so the known/unknown probe is a real one (D82).
+        # topologies by construction, so the known/unknown probe is a real one.
         "topology_shape": topology_shape,
         "group_splits": [list(s) for s in _GROUP_SPLITS[:n_groups]],
         "counts": {name: len(split["lcag"]) for name, split in splits.items()},
@@ -283,8 +283,7 @@ def load_split(ref: dict[str, Any]) -> dict[str, np.ndarray]:
     ],
     # Phase-space generation is silent by nature -- one artifact at the end, nothing
     # to stream in between -- and its runtime scales with the request, so the
-    # engine's silence watchdog has to be told that quiet means working here
-    # (``DECISIONS.md`` D89).
+    # engine's silence watchdog has to be told that quiet means working here.
     timeout=24 * 60 * 60,
 )
 def build_dataset(
@@ -336,12 +335,12 @@ def build_dataset(
 def dataset_statistics(
     splits: dict[str, dict[str, np.ndarray]], meta: dict[str, Any]
 ) -> tuple[dict[str, Any], dict[str, bytes]]:
-    """Summarise the dataset and render the phase-1 verification figures.
+    """Summarise the dataset and render the verification figures.
 
-    The angular marginals are the point of the exercise: the ROADMAP predicts
-    kinematic features cluster the encoding angles, which is the regime where the
-    unflattening theory makes falsifiable predictions. Circular variance near 0
-    means clustered, near 1 means spread.
+    The angular marginals are the point of the exercise: whether kinematic
+    features cluster the encoding angles decides whether the data reach the regime
+    where the unflattening theory makes falsifiable predictions. Circular variance
+    near 0 means clustered, near 1 means spread.
 
     Args:
         splits: Split arrays from :func:`assemble_dataset`.
@@ -418,7 +417,7 @@ def dataset_statistics(
 
 
 @node(
-    # Silent until every figure is rendered (D89).
+    # Silent until every figure is rendered.
     timeout=1800,
     requires=[
         Port("dataset_train", "artifact"),
@@ -477,10 +476,10 @@ def shape_ceiling(
     """Record how many distinct tree shapes the sampler can actually supply.
 
     The known/unknown probe can only be as good as the number of *distinct*
-    unlabelled shapes a depth admits, and ``RESEARCH.md`` §6 flagged that ceiling
-    without locating it. This asks the sampler for a given count per group and
-    records where it runs out, which turns the caveat into a number
-    (``DECISIONS.md`` D102). No phase-space generation: shapes only.
+    unlabelled shapes a depth admits, and distinct shapes are scarce at small leaf
+    counts. This asks the sampler for a given count per group and records where it
+    runs out, which turns that ceiling into a number. No phase-space generation:
+    shapes only.
 
     Args:
         min_fsps: Smallest final-state particle count.

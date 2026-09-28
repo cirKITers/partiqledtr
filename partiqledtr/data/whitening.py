@@ -1,4 +1,4 @@
-"""Fixed isotropic whitening of the encoded input distribution (ROADMAP phase 4).
+"""Fixed isotropic whitening of the encoded input distribution.
 
 The unflattening construction: draw one rotation ``Q ~ Haar(SO(4))``, hold it fixed
 across the whole dataset, and read the pair-polar angles of the rotated
@@ -180,7 +180,7 @@ def fit_whitening(
 
 
 @node(
-    # Rejection sampling over the training split, silent throughout (D89).
+    # Rejection sampling over the training split, silent throughout.
     timeout=3600,
     requires=[
         Port("dataset_train", "artifact"),
@@ -197,7 +197,7 @@ def whitening_rotation(
     max_draws: int = 200,
     n_pairs: int = 4096,
 ) -> dict[str, Any]:
-    """Fit the phase-4 whitening rotation on the training split.
+    """Fit the whitening rotation on the training split.
 
     Args:
         dataset_train: Training split artifact reference.
@@ -205,9 +205,9 @@ def whitening_rotation(
             be the one the model trains on: a rotation accepted on one encoding's
             four-vectors says nothing about another's, and fitting on ``cartesian``
             while training on ``legacy`` measurably lowered the purity it was meant
-            to raise (``DECISIONS.md`` D91). An encoding with no four-vectors falls
-            back to ``cartesian`` and is marked inapplicable rather than failing the
-            run, since nothing will apply it (D94).
+            to raise. An encoding with no four-vectors falls back to ``cartesian``
+            and is marked inapplicable rather than failing the run, since nothing
+            will apply it.
         whitening_seed: Seed for the rotation draws and the pair sampling. Its own
             port rather than the run seed, so the acceptance rate can be swept
             without also re-seeding the model.
@@ -224,9 +224,9 @@ def whitening_rotation(
     # This node runs for every run so its acceptance report is always recorded, and a
     # classical arm ignores the rotation entirely -- so an encoding with no
     # four-vectors to rotate must not fail the run, it just has nothing to fit on.
-    # Falling back keeps D91's substance: wherever the rotation is *applied*, it was
-    # fitted on the very features the circuit encodes, because only the QFM applies
-    # it and the QFM accepts four-vectors alone (D56, D94).
+    # Falling back is still safe: wherever the rotation is *applied*, it was fitted
+    # on the very features the circuit encodes, because only the QFM applies it and
+    # the QFM accepts four-vectors alone.
     fitted_on = encoding if encoding in _ROTATABLE else "cartesian"
     split = load_split(dataset_train)
     rotation, report = fit_whitening(

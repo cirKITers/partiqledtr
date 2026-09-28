@@ -1,11 +1,11 @@
-"""Phase-space event generation for a sampled decay topology (ROADMAP phase 1).
+"""Phase-space event generation for a sampled decay topology.
 
 Uses `phasespace-jax <https://github.com/stroblme/phasespace-jax>`_, a JAX port of
 phasespace, so the project has no TensorFlow dependency and generation runs on the
 same array backend as everything else.
 
 Facts about the phasespace API established by measurement rather than from its
-documentation (see ``DECISIONS.md`` D13, D14):
+documentation:
 
 * ``GenParticle.generate`` returns momenta as ``(n_events, 4)`` arrays laid out
   ``[px, py, pz, E]``.
@@ -46,7 +46,7 @@ class UngeneratableTopologyError(RuntimeError):
     Not a bug and not a bad topology in itself -- a decay whose daughter masses
     nearly saturate the parent mass genuinely has almost no phase space, so
     unweighting rejects nearly every draw. The caller's remedy is to sample a
-    different topology (``DECISIONS.md`` D90).
+    different topology.
     """
 
 
@@ -86,7 +86,7 @@ def generate_events(
     normalised phase-space weight, so the returned sample follows the phase-space
     density. Prior work (baumbauen, partiqlegan) discarded the weights and used
     the raw sample, which biases exactly the angular marginals this project
-    studies (``DECISIONS.md`` D12).
+    studies.
 
     Args:
         topology: Nested ``{"name", "mass", "children"}`` dict describing the decay.
@@ -98,7 +98,7 @@ def generate_events(
         max_draws: Total weighted draws to spend before giving up. This is what
             "ungeneratable" means operationally -- a decay whose acceptance rate is
             too low to reach ``n_events`` within the budget -- so it is stated as a
-            budget rather than as a round count (``DECISIONS.md`` D90).
+            budget rather than as a round count.
 
     Returns:
         Mapping from final-state particle name to an ``(n_events, 4)`` float array
@@ -108,7 +108,7 @@ def generate_events(
         ValueError: If ``n_events`` is not positive or the topology has no decay.
         UngeneratableTopologyError: If ``max_draws`` was spent without reaching
             ``n_events``. The caller's remedy is a different topology, so the
-            message carries the measured acceptance rate (``DECISIONS.md`` D90).
+            message carries the measured acceptance rate.
     """
     if n_events <= 0:
         raise ValueError(f"n_events must be positive, got {n_events}")
@@ -146,7 +146,7 @@ def generate_events(
 
     # Spend the budget rather than a round count: what decides whether a topology is
     # worth keeping is how many draws it costs, and the chunk size already varies by
-    # orders of magnitude with the measured rate (D90).
+    # orders of magnitude with the measured rate.
     drawn_total = pilot
     while n_accepted < n_events and drawn_total < max_draws:
         draw(chunk)

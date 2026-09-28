@@ -1,4 +1,4 @@
-"""Figures for ROADMAP phase 4b.
+"""Figures for the s2 expressivity study.
 
 Three claims, one figure each:
 
@@ -12,7 +12,7 @@ Three claims, one figure each:
    distribution depends on the encoding weights, which is spectral preconditioning
    seen from the model side rather than from the data.
 3. ``angle_plane`` -- the angle distribution itself, in the two coordinates that
-   separate its regimes (``DECISIONS.md`` D92). One point per qubit, never pooled.
+   separate its regimes. One point per qubit, never pooled.
 
     python dev/s2-expressivity/figures.py
 """
@@ -100,8 +100,8 @@ def _style() -> None:
 
 def configurations() -> list[dict[str, Any]]:
     """One row per configuration, averaged over seeds."""
-    # Keyed on the configuration, not on the arm that ran it: the phase-4 baseline
-    # is a cell of all three arms, and keeping it three times would both duplicate a
+    # Keyed on the configuration, not on the arm that ran it: the baseline is a
+    # cell of all three arms, and keeping it three times would both duplicate a
     # point and throw away the seeds the other arms spent on it.
     rows: dict[tuple, list[dict[str, Any]]] = {}
     for path in sorted(RESULTS.glob("arm_*.json")):
@@ -110,7 +110,7 @@ def configurations() -> list[dict[str, Any]]:
             if "error" in record or config.get("model") != "qfm":
                 continue
             axes = ("encoding", "angle_map", "ansatz", "n_layers", "enc_weights", "enc_reupload")
-            # `frontend` is what the 280 phase-4b runs recorded; the axis was renamed
+            # `frontend` is what this study's 280 runs recorded; the axis was renamed
             # to `preconditioner` afterwards, and their result files were not rewritten.
             arm = config.get("preconditioner", config.get("frontend"))
             key = (arm, *(config.get(a) for a in axes))
@@ -118,7 +118,7 @@ def configurations() -> list[dict[str, Any]]:
 
     def get(record: dict[str, Any], name: str) -> Any:
         # The `*_repaired` keys were written once, by a repair script that has since
-        # been retired: records produced before the purity subset was fixed (D105)
+        # been retired: records produced before the purity subset was fixed
         # measured the observable on one topology, and the recomputed value sits
         # beside the original rather than over it. Anything recorded after the fix
         # carries the plain key alone, which is what the fallback reads.
@@ -185,7 +185,7 @@ def configurations() -> list[dict[str, Any]]:
 
 
 def _series_of(row: dict[str, Any]) -> str:
-    """Which axis this configuration varies from the phase-4 baseline."""
+    """Which axis this configuration varies from the baseline."""
     if row["n_layers"] != 2:
         return "depth"
     return "ansatz" if row["ansatz"] != "XY_Brickwork" else "encoding"
@@ -437,11 +437,11 @@ def angle_plane(rows: list[dict[str, Any]], path: Path) -> None:
     r"""Claim 3: the angle distribution needs two coordinates, not one.
 
     A g-purity rises both when angles spread toward uniform and when they pin near
-    :math:`\pi/2`, and those are opposite in what they do to the input information
-    (``DECISIONS.md`` D92). ``mean_sin2`` separates them -- 0.5 uniform, 1 pinned,
-    0 clustered -- and total variation says how far from uniform the law is. One
-    point per *qubit*: sites peaking at different angles average into something that
-    looks flat, which is the artefact the latent-drift memo warns about.
+    :math:`\pi/2`, and those are opposite in what they do to the input information.
+    ``mean_sin2`` separates them -- 0.5 uniform, 1 pinned, 0 clustered -- and total
+    variation says how far from uniform the law is. One point per *qubit*: sites
+    peaking at different angles average into something that looks flat, which is
+    the artefact the latent-drift memo warns about.
     """
     families = {
         "hamming": ("#2a78d6", "pair-polar, Hamming"),
@@ -483,7 +483,7 @@ def angle_plane(rows: list[dict[str, Any]], path: Path) -> None:
             zip(stats["tv_uniform"], stats["mean_sin2"], strict=True)
         ):
             # Circles are the (px, py) azimuths, triangles the (pz, E) sites, which
-            # E >= |pz| confines to about [pi/4, 3pi/4] whatever the data does (D79).
+            # E >= |pz| confines to about [pi/4, 3pi/4] whatever the data does.
             azimuth = site % 2 == 0
             axis.plot(
                 tv,

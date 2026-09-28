@@ -1,4 +1,4 @@
-"""Message-passing-free control baseline (ROADMAP phase 2)."""
+"""Message-passing-free control baseline."""
 
 import jax
 import jax.numpy as jnp
@@ -13,12 +13,12 @@ class MLPBaseline(nnx.Module):
     Each entry is a linear readout of its own two particles' preconditioned features --
     ``logits[i, j] = W @ concat(phi(x_i), phi(x_j)) + b`` -- with no aggregation over
     the other particles and no nonlinearity beyond the preconditioner itself. It is the
-    phase-3 quantum model with everything quantum deleted, which is what makes it the
-    control the ROADMAP asks for: if it already solves the task, nothing the rest of
-    the architecture does can be credited.
+    quantum model with everything quantum deleted, which is what makes it the right
+    control: if it already solves the task, nothing the rest of the architecture does
+    can be credited.
 
-    The head is deliberately linear (``DECISIONS.md`` D38), so this model is weak by
-    construction. Its job is to establish the floor, not to compete.
+    The head is deliberately linear, so this model is weak by construction. Its job is
+    to establish the floor, not to compete.
 
     Args:
         n_features: Number of per-particle input features ``F``.

@@ -1,7 +1,7 @@
-"""LCAG models and the registries the training node selects them by (ROADMAP phases 2-4).
+"""LCAG models and the registries the training node selects them by.
 
-Call convention, satisfied by every entry of :data:`MODELS` including the phase-3
-quantum one:
+Call convention, satisfied by every entry of :data:`MODELS` including the quantum
+one:
 
     A model is an ``nnx.Module`` with
     ``__call__(features: (B, L, F), mask: (B, L) bool) -> logits: (B, L, L, C)``,
@@ -14,7 +14,7 @@ valid block. A preconditioner is an ``nnx.Module`` mapping ``(..., F) -> (..., F
 to a model as its ``preconditioner`` argument.
 
 There is no abstract base class: the convention plus the two registries is the whole
-interface. Phase 3 adds a ``"qfm"`` model, phase 4 a ``"whiten"`` preconditioner.
+interface.
 
 :func:`n_params` counts a model and :func:`matched_dim` inverts that count, which is
 how the parameter-matched classical arm of a study is chosen.
@@ -42,7 +42,7 @@ def n_params(module: nnx.Module) -> int:
 
     Returns:
         Total number of elements over all :class:`flax.nnx.Param` leaves. Used to
-        parameter-match the phase-3 quantum model against a classical baseline.
+        parameter-match the quantum model against a classical baseline.
     """
     return sum(int(leaf.size) for leaf in jax.tree.leaves(nnx.state(module, nnx.Param)))
 
@@ -50,9 +50,8 @@ def n_params(module: nnx.Module) -> int:
 def matched_dim(target: int, build, *, max_dim: int = 256, **kwargs) -> int:
     """Return the ``dim`` whose parameter count sits closest to ``target``.
 
-    Parameter matching was a claim in the write-up before it was a tool, and the
-    claim was wrong by a factor of sixteen (``DECISIONS.md`` D86). This makes it
-    computable, so the matched arm of a study is derived rather than asserted.
+    A hand-picked "matched" width is easily off by an order of magnitude. This makes
+    the match computable, so the matched arm of a study is derived rather than asserted.
 
     Args:
         target: Parameter count to match, e.g. that of the quantum arm.

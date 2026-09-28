@@ -29,8 +29,8 @@ def _split(seed: int = 0, n: int = N, n_fsps: int = L):
     """A synthetic dataset split: the arrays load_split returns, built directly.
 
     Labels are symmetric with a -1 diagonal and -1 on padded rows/columns, and never
-    use class 0 -- the generated dataset's convention (DECISIONS.md D17, D49). Half the
-    events carry topology 1, so a known/unknown split has both sides populated.
+    use class 0 -- the generated dataset's convention. Half the events carry
+    topology 1, so a known/unknown split has both sides populated.
     """
     rng = np.random.default_rng(seed)
     upper = np.triu(rng.integers(1, C, size=(n, L, L)), 1)
@@ -154,12 +154,12 @@ def test_overfits_a_tiny_batch(capsys):
         "node_hidden": 32,
         "node_omega": 1.0,
         # Carried in the config, not beside it, so `evaluate` rebuilds the arm it
-        # scored rather than silently dropping the rotation (D81).
+        # scored rather than silently dropping the rotation.
         "whitening": None,
     }
     assert final["n_params"] > 0
     # A classical model encodes no quantum state, so it omits the purity key
-    # entirely: a float port accepts neither NaN nor None (D75).
+    # entirely: a float port accepts neither NaN nor None.
     assert set(records[0]) == {"epoch", "train_loss", "val_loss", "val_accuracy", "val_perfect"}
 
 
@@ -197,9 +197,9 @@ def test_checkpoint_carries_the_model_configuration():
 
 
 def test_checkpoint_round_trip_preserves_a_non_default_ansatz():
-    """Head and node widths follow the arm's bond count and channel count
-    (D107, D108), so a checkpoint must rebuild through its config's ansatz and
-    ``n_channels`` rather than through the defaults."""
+    """Head and node widths follow the arm's bond count and channel count, so a
+    checkpoint must rebuild through its config's ansatz and ``n_channels`` rather
+    than through the defaults."""
     config: dict[str, Any] = {
         "model": "qfm",
         "preconditioner": "none",
@@ -273,7 +273,7 @@ def test_evaluate_split_returns_the_documented_keys():
     assert set(full) == set(plain) | {"loss", "valid_tree", "valid_tree_strict"}
     assert all(0.0 <= full[key] <= 1.0 for key in plain)
     assert full["loss"] > 0.0
-    # Class 0 is never a label here, so the _primary variants coincide (D49).
+    # Class 0 is never a label here, so the _primary variants coincide.
     assert full["accuracy"] == full["accuracy_primary"]
 
 
@@ -303,7 +303,7 @@ def artifacts(monkeypatch, tmp_path):
 
 
 def test_fit_and_evaluate_run_end_to_end(artifacts):
-    """The node bodies, including the known/unknown topology split of D16."""
+    """The node bodies, including the known/unknown topology split."""
     buffer = io.BytesIO()
     np.savez(buffer, **_split())
     dataset = artifacts(buffer.getvalue(), "split.npz")
@@ -340,9 +340,9 @@ def test_the_whitening_arm_is_opt_in():
     """`whiten` gates the fixed-preconditioning arm, and defaults to off.
 
     The rotation is always wired into `fit` by the flow, so without this switch
-    every run would silently be whitened and the ROADMAP's "raw" arm would be
-    unreachable -- which would invalidate the phase-4 comparison rather than
-    merely break it. The default has to stay off.
+    every run would silently be whitened and the "raw" arm would be unreachable --
+    which would invalidate the preconditioning comparison rather than merely break
+    it. The default has to stay off.
     """
     import inspect
 
@@ -387,12 +387,12 @@ def test_node_payloads_are_port_legal():
 
 
 def test_preconditioner_does_not_reseed_the_model():
-    """Attaching a preconditioner must add one, not re-initialise everything (D84).
+    """Attaching a preconditioner must add one, not re-initialise everything.
 
     Built from a single rng stream, the preconditioner's own draws shift every later
-    draw, so the raw and learned arms of the phase-4 study would have differed by a
-    full re-initialisation as well as by the preconditioner -- a confound in exactly the
-    comparison the study is about.
+    draw, so the raw and learned arms of the preconditioning study would have differed
+    by a full re-initialisation as well as by the preconditioner -- a confound in
+    exactly the comparison the study is about.
     """
     common: dict[str, Any] = {"model": "gnn", "n_features": F, "n_classes": C, "dim": 8, "seed": 3}
     plain = build_model(preconditioner="none", **common)
@@ -410,9 +410,9 @@ def test_preconditioner_does_not_reseed_the_model():
 
 
 def test_parameter_matched_arm_is_derived_not_asserted():
-    """The documented classical baseline has to actually match the quantum one (D86).
+    """The parameter-matched classical baseline has to actually match the quantum one.
 
-    The write-up claimed dim=8 was parameter-matched; it is sixteen times larger.
+    A hand-picked dim=8 looks matched but is sixteen times larger.
     matched_dim computes the width instead, so the claim is checkable.
     """
     from functools import partial
@@ -426,15 +426,15 @@ def test_parameter_matched_arm_is_derived_not_asserted():
     dim = matched_dim(target, build, n_blocks=3)
     matched = n_params(build(dim=dim, n_blocks=3))
     assert abs(matched - target) / target < 0.1
-    # ... and the number the docs used to carry is nowhere near.
+    # ... and the hand-picked dim=8 is nowhere near.
     assert n_params(build(dim=8, n_blocks=3)) > 10 * target
 
 
 def test_checkpoint_round_trip_preserves_the_whitening_arm():
-    """A whitened checkpoint must not be rebuilt as the raw arm (D81).
+    """A whitened checkpoint must not be rebuilt as the raw arm.
 
     The rotation is not an nnx.Param, so before it moved into the config `evaluate`
-    silently scored the whitened arms of the phase-4 matrix on unrotated angles.
+    silently scored the whitened arms of the preconditioning study on unrotated angles.
     """
     from partiqledtr.data.whitening import sample_rotation
     from partiqledtr.models.qfm import QFMConstellation
@@ -462,7 +462,7 @@ def test_checkpoint_round_trip_preserves_the_whitening_arm():
 
 
 def test_quantum_arm_streams_the_angle_distribution_beside_the_purity():
-    """Both observables have to travel, because either alone is ambiguous (D92).
+    """Both observables have to travel, because either alone is ambiguous.
 
     The purity says how trainable the encoded state is; the angle statistics say
     what its distribution looks like, which is what separates a rescue that spreads
@@ -492,7 +492,7 @@ def test_quantum_arm_streams_the_angle_distribution_beside_the_purity():
 
 
 def test_split_learning_rates_move_exactly_the_groups_they_name():
-    """The D109 split: per-group Adam rates through one optimizer.
+    """The learning-rate split: per-group Adam rates through one optimizer.
 
     Adam equalises per-parameter step sizes, so the only way two groups train at
     genuinely different speeds is a per-group base rate. A rate of zero is the
@@ -559,7 +559,7 @@ def test_classical_arm_omits_the_angle_ports():
 
 
 def test_purity_subset_is_drawn_across_the_split_not_sliced_off_it():
-    """The phase-4 observable has to describe the data, not its first topology (D105).
+    """The purity observable has to describe the data, not its first topology.
 
     Splits are assembled topology by topology, so `val[:n]` is one topology at one
     multiplicity. Measured that way the g-purity of two different encodings agreed

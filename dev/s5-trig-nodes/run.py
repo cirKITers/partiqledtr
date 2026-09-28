@@ -7,7 +7,7 @@ the node update's output directly as RY angles. The init-time diagnostic
 0.92 mu_n, against the collapse hypothesis), sitting at the uniform level while
 the gated block-1 chart sits at 1.89 mu_n. What is open is what training does to
 it, and whether classical nonlinear capacity in the node update pays -- and if
-so, whether the *trigonometric* kind (SIREN, cf. QIREN in `LITERATURE.md`) pays
+so, whether the *trigonometric* kind (SIREN, cf. QIREN) pays
 beyond a matched-parameter ELU control.
 
 Four cells on the s4 baseline configuration (`XY_Cycle`, floor-free, cheapest;
@@ -43,7 +43,7 @@ DATA = STUDY.parent / "s2-expressivity" / "data"
 OUT = STUDY / "results"
 
 #: The pinned generate run `DATA` was exported from. `--fluksio` submits cells
-#: as versioned runs of the `train` flow against its artifacts (D113); the
+#: as versioned runs of the `train` flow against its artifacts; the
 #: in-process path below stays the sandbox.
 GENERATE_RUN = "1787760161002-8bde9189"
 
@@ -89,12 +89,12 @@ def cells_expand() -> list[dict[str, Any]]:
 
 
 def cells_confirm() -> list[dict[str, Any]]:
-    """Confirmation of the §18/§19 headline cells, plus the missing elu controls.
+    """Confirmation of the probe and expansion headline cells, plus the missing elu controls.
 
     Submit with ``--seeds 5``: dedup is study-wide, so the probe/expand seeds
     are not re-run -- the siren headline cells gain three seeds each and the
     elu control reaches five seeds on every arm, which is what closes the
-    capacity caveat behind the floor-free-specific reading (`RESEARCH.md` §19).
+    capacity caveat behind the floor-free-specific reading.
     The secondary mlp-interaction cells stay at their two seeds.
     """
     siren = {**BASE, "node_update": "siren"}
@@ -136,7 +136,7 @@ def load(name: str) -> dict[str, Any]:
 
 
 def one_cell(settings: dict[str, Any], epochs: int) -> dict[str, Any]:
-    """Fit one cell exactly as the ``train`` flow's nodes would (D104)."""
+    """Fit one cell exactly as the ``train`` flow's nodes would."""
     import numpy as np
 
     from partiqledtr.analysis import dla_check
@@ -241,7 +241,7 @@ def run_fluksio(
     epochs: int,
     out: Path,
 ) -> list[dict[str, Any]]:
-    """Run a block through the engine: every cell one versioned run (D113).
+    """Run a block through the engine: every cell one versioned run.
 
     The s2 ``run_arm_fluksio`` pattern: artifacts resolved from the pinned
     generate run, a bounded number of submissions in flight, results appended to

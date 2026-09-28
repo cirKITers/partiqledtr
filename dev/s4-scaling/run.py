@@ -1,27 +1,28 @@
-"""ROADMAP phase 6: the graph trichotomy at ``n = 6`` on a kinematics-informed chart.
+"""The graph trichotomy at ``n = 6`` on a kinematics-informed chart.
 
 Three graph arms over the same intra-particle chains -- the even cycle (poly
 floor-free), the 3-rung ladder (encoded-universal floor-free) and the odd-chord
-control (floored) -- crossed with {none, mlp}, at the phase-4c configuration
-(K=4, ``lr_qfm=1e-2``). The clustered ``legacy`` axis is dropped from this study
-(user decision 2026-08-31), so the annihilation prediction is deferred; what this
-grid tests is the certificate-range and hardness predictions (ROADMAP phase 6,
-predictions 1, 3, 4) with the preconditioner axis kept for the distribution effect.
+control (floored) -- crossed with {none, mlp}, at the configuration of s3's full
+grid (K=4, ``lr_qfm=1e-2``). The clustered ``legacy`` axis is dropped from this
+study (user decision 2026-08-31), so the annihilation prediction is deferred; what
+this grid tests is the certificate-range, hardness and specificity predictions
+(predictions 1, 3, 4 in the README) with the preconditioner axis kept for the
+distribution effect.
 
 The third per-particle angle is the chart the ``--encodings`` block picks: the
 three ``pair_polar_*`` candidates are priced in g-purity on real kinematics
 *before any training*, and the grid runs the chart whose induced angle law sits
-at or above ``mu_n`` on the floor-free arms (the phase-4b gate, D97).
+at or above ``mu_n`` on the floor-free arms (the same no-training gate as s1).
 
 Runs against generate run ``1787760161002-8bde9189`` -- the same data as s2/s3,
 deliberately, so the register and chart are the only things that moved between
 the studies. ``--fluksio`` submits every cell as a versioned run of the ``train``
-flow (D113); without it the cells run in process on the splits
+flow; without it the cells run in process on the splits
 ``dev/s2-expressivity/data`` exported from that run, which is the sandbox path.
 
     python dev/s4-scaling/run.py --encodings   # price the three charts, no training
     python dev/s4-scaling/run.py --gate        # one worst-case cell, cost projection
-    python dev/s4-scaling/run.py --import-inprocess  # seeds 0-2, run in process (D114)
+    python dev/s4-scaling/run.py --import-inprocess  # seeds 0-2, run in process
     python dev/s4-scaling/run.py --fluksio     # the grid (6 cells x 5 seeds), versioned
     python dev/s4-scaling/run.py --report      # tables + correlations
 """
@@ -42,11 +43,11 @@ DATA = STUDY.parent / "s2-expressivity" / "data"
 OUT = STUDY / "results"
 
 #: The pinned generate run `DATA` was exported from; `--fluksio` resolves the
-#: dataset artifacts from it (D113).
+#: dataset artifacts from it.
 GENERATE_RUN = "1787760161002-8bde9189"
 
-#: The day the in-process smoke seeds landed (RESEARCH §16). Their records carry
-#: durations but no timestamps, so the import is stamped with the day (D114).
+#: The day the in-process smoke seeds landed. Their records carry durations but no
+#: timestamps, so the import is stamped with the day.
 INPROCESS_DATE = "2026-09-02T00:00:00+00:00"
 
 #: The chart the grid encodes, set by the ``--encodings`` gate (results/encoding.json).
@@ -80,7 +81,7 @@ def gate_cell() -> list[dict[str, Any]]:
 def price_encodings(n_pairs: int = 4096, seed: int = 0) -> dict[str, Any]:
     """Price the three-angle charts in g-purity on real kinematics, per arm.
 
-    The phase-6 gate: mean purity of the induced angle law over sampled real
+    The chart gate: mean purity of the induced angle law over sampled real
     edges, against each floor-free arm's own basis and its uniform-prior mean.
     ``W = I`` (hamming-diagonal), the study's encoding-weight regime.
     """
@@ -123,7 +124,7 @@ def load(name: str) -> dict[str, Any]:
 
 
 def one_cell(settings: dict[str, Any], epochs: int) -> dict[str, Any]:
-    """Fit one cell exactly as the ``train`` flow's nodes would (D104)."""
+    """Fit one cell exactly as the ``train`` flow's nodes would."""
     import numpy as np
 
     from partiqledtr.analysis import dla_check
@@ -240,7 +241,7 @@ def run_fluksio(
     epochs: int,
     out: Path,
 ) -> list[dict[str, Any]]:
-    """Run a block through the engine: every cell one versioned run (D113).
+    """Run a block through the engine: every cell one versioned run.
 
     The s5 pattern: artifacts resolved from the pinned generate run, ``jobs``
     submissions in flight, records appended to the same JSON shape the
@@ -299,9 +300,9 @@ def run_fluksio(
 
 
 def import_inprocess(filename: str, dataset: str, *, out: Path) -> None:
-    """Record the in-process seeds of ``filename`` in the engine (D114).
+    """Record the in-process seeds of ``filename`` in the engine.
 
-    They ran through :func:`one_cell` before D113, on qml-essentials' built-in
+    They ran through :func:`one_cell`, unversioned, on qml-essentials' built-in
     simulator. fluksio's import stores each as a finished ``train`` run with
     ``cause="import"`` and no commit or code digest -- versioned as what it is,
     not as a run of today's code -- with its params completed the way a
@@ -359,8 +360,8 @@ def correlations(trace: list[dict[str, float]]) -> dict[str, float | None]:
     Both raw and first-differenced: two monotone series correlate trivially, so
     the de-trended number is the honest one and the headline. ``None`` where a
     series is constant (the ``none`` control) -- there is nothing to correlate.
-    On the favourable chart the phase-6 expectation mirrors §15's ``pair_polar``
-    rows: coupling absent, on floored and floor-free arms alike.
+    On the favourable chart the expectation mirrors the ``pair_polar`` rows of
+    s3's full grid: coupling absent, on floored and floor-free arms alike.
     """
     import numpy as np
     from scipy import stats
@@ -435,9 +436,9 @@ def main() -> None:
     """Parse arguments and run the requested block, the chart gate, or the report."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seeds", type=int, default=5, help="the smoke's 3, topped up (user)")
-    # Two cells at a time: what this VM's 15 GB holds with the engine's warm workers (D115).
+    # Two cells at a time: what this VM's 15 GB holds with the engine's warm workers.
     parser.add_argument("--jobs", type=int, default=2)
-    # 40, matching phases 4b/4c so the numbers are comparable run for run.
+    # 40, matching s2/s3 so the numbers are comparable run for run.
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--out", type=Path, default=OUT)
     parser.add_argument("--encodings", action="store_true", help="price the charts, no training")
@@ -452,7 +453,7 @@ def main() -> None:
     parser.add_argument(
         "--import-inprocess",
         action="store_true",
-        help="record the in-process seeds in the engine, against --fluksio's run (D114)",
+        help="record the in-process seeds in the engine, against --fluksio's run",
     )
     parser.add_argument("--report", action="store_true")
     args = parser.parse_args()

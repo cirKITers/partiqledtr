@@ -1,8 +1,8 @@
-r"""Theory instrumentation for the unflattening connection (ROADMAP phases 3-4b).
+r"""Theory instrumentation for the unflattening connection.
 
 Three things live here, all recorded or tracked around training rather than trained:
 
-1. **Product-state g-purity** -- the observable of ROADMAP phase 4.  For a
+1. **Product-state g-purity** -- the trainability observable.  For a
    floor-free, polynomial-DLA ansatz the unflattening result (Theorem 1) states
    :math:`\mathrm{Var}_W[\langle Z_i \rangle] = P_{\mathfrak g}(\rho) / \dim
    \mathfrak g`, so the g-purity of the *encoded input state* alone decides
@@ -12,12 +12,12 @@ Three things live here, all recorded or tracked around training rather than trai
    :math:`\langle Z \rangle = \cos\theta`.  :func:`product_state_purity` sums the
    squared expectations over the arm's own DLA basis, which reproduces the
    manuscript's hand-derived closed forms to float32 *and* extends to arms that
-   have none -- the phase-4b ansatz arms (``DECISIONS.md`` D94).
+   have none -- the project's own ansatz arms.
    :func:`g_purity_offdiag` is kept as the ported closed form of
    ``reference/unflattening/unflattening/utils/purity.py``: it prices encodings
    in :func:`encoding_purity` and pins the general form in the tests.
 
-   **Which angles go in (DECISIONS.md D78, D96).**  The closed forms describe the
+   **Which angles go in.**  The closed forms describe the
    state *entering the first trainable block*, which is the scope the
    unflattening manuscript claims for them under re-uploading: later encoding
    layers act on parameter-dependent entangled states and are not product
@@ -46,7 +46,7 @@ Three things live here, all recorded or tracked around training rather than trai
    :mod:`partiqledtr.ansaetze`; what the certificate says about each is the
    experiment, and it is measured rather than asserted.
 
-The phase-5 spectrum/FCC instrumentation (fourier-fingerprints) is not here yet.
+Spectrum/FCC instrumentation (fourier-fingerprints) is not here yet.
 """
 
 import functools
@@ -154,12 +154,11 @@ def product_state_purity(theta: jax.Array, ansatz: str) -> jax.Array:
     This is the same object the manuscript's closed forms describe -- it agrees
     with :func:`g_purity_offdiag` to float32 -- but it is read off the arm's own
     DLA basis instead of a hand-derived series, which is what lets a *new*
-    ansatz be measured at all (``DECISIONS.md`` D94). Cost is
-    ``O(|basis| * n)`` and it is jittable.
+    ansatz be measured at all. Cost is ``O(|basis| * n)`` and it is jittable.
 
     Args:
-        theta: Encoded angles of shape ``(..., n_qubits)``, the argument
-            convention of ``DECISIONS.md`` D78.
+        theta: Encoded angles of shape ``(..., n_qubits)`` of a single encoding
+            layer, never scaled by the depth (see the module docstring).
         ansatz: One of :data:`partiqledtr.ansaetze.ANSAETZE`.
 
     Returns:
@@ -251,11 +250,10 @@ def angle_stats(angles: np.ndarray) -> dict[str, list[float]]:
     distribution looks like, and two very different laws reach the same purity.
     ``P_{\mathfrak g}`` for the off-diagonal algebra is built from
     :math:`\sin^2\theta` factors, so it climbs both when the angles *spread*
-    toward uniform -- the flattening the ROADMAP predicts -- and when they *pin*
+    toward uniform -- the flattening the study looks for -- and when they *pin*
     near :math:`\pi/2`, which is the true maximum :math:`n - 1` and the
     configuration the unflattening manuscript notes destroys the input
-    information. Telling those apart needs the distribution, not the purity
-    (``DECISIONS.md`` D92).
+    information. Telling those apart needs the distribution, not the purity.
 
     Reported **per qubit**, never pooled: sites peaking at different angles average
     into something that looks flat, which is the artefact the unflattening latent
@@ -265,8 +263,8 @@ def angle_stats(angles: np.ndarray) -> dict[str, list[float]]:
 
     * It has a **nonzero floor set by kinematics, not by training**. The
       ``(p_z, E)`` sites cannot leave ``(0, pi)`` and in practice sit inside about
-      ``[pi/4, 3pi/4]`` (D79), so those qubits can never be uniform however the
-      preconditioner moves them. Compare a run against the *raw* arm's value at the same
+      ``[pi/4, 3pi/4]`` (as ``E >= |p_z|``), so those qubits can never be uniform
+      however the preconditioner moves them. Compare a run against the *raw* arm's value at the same
       site, not against zero.
     * It depends on :data:`TV_BINS` and on how many angles went in.
 
@@ -332,11 +330,11 @@ def encoding_purity(
     This is the measurement behind the project's clearest empirical claim, and the
     reason it lives here rather than in a notebook: the encoding a decay-tree model
     picks decides whether its inputs land in the barren regime at all, and the
-    unflattening theory prices that decision in a currency both papers share
-    (``DECISIONS.md`` D88).  Crossing it with the weight arms answers ROADMAP phase
-    4b arm B's central question *without training anything* -- spectral
-    preconditioning is a property of data plus encoding, so if an exponential
-    spectrum lifts a collapsed encoding off the floor, it shows up here (D97).
+    unflattening theory prices that decision in a currency both papers share.
+    Crossing it with the encoding-weight arms answers their central question
+    *without training anything* -- spectral preconditioning is a property of data
+    plus encoding, so if an exponential spectrum lifts a collapsed encoding off the
+    floor, it shows up here.
 
     Three feature arms, all read off the same events:
 
@@ -344,7 +342,7 @@ def encoding_purity(
       ``(pz, E)``;
     * ``direct`` -- the ``(theta, phi)`` direction angles of the ``"angles"``
       encoding, used as-is;
-    * ``legacy`` -- partiqlegan's ``p * E * pi`` product, the clustered arm (D80),
+    * ``legacy`` -- partiqlegan's ``p * E * pi`` product, the clustered arm,
       and the one where the manuscript's jitter amplification has room to act.
 
     crossed with the six ``weights-reupload`` cells of
@@ -410,7 +408,7 @@ def encoding_purity(
 
 
 @node(
-    # One purity pass per encoding arm, silent throughout (D89).
+    # One purity pass per encoding arm, silent throughout.
     timeout=1800,
     requires=[Port("dataset_train", "artifact")],
     provides=[Port("encoding_report", "json")],
@@ -525,7 +523,7 @@ def dla_check(
     certifies a floor-free arm on which the unflattening rescue is live, while
     :math:`n` (``Matchgate``) certifies the floored control arm.
 
-    Measured at the constellation size ``n_qubits=4`` (DECISIONS.md D24)::
+    Measured at the constellation size ``n_qubits=4``::
 
         ansatz          dim_g  dim_su   ratio  n_diag_words  runtime
         XY_Brickwork       12     255  0.0471             0   0.6 ms
@@ -570,7 +568,7 @@ def dla_check(
 
 
 @node(
-    # Circuit_19's Lie closure is slow and silent (D89).
+    # Circuit_19's Lie closure is slow and silent.
     timeout=1800,
     requires=[Port("ansatz", "str"), Port("n_qubits", "int")],
     provides=[Port("dla_report", "json")],
@@ -578,14 +576,14 @@ def dla_check(
 def dla_report(*, ansatz: str = "XY_Brickwork", n_qubits: int = 4, max_dim: int = 4200) -> dict:
     """Record an ansatz arm's dynamical Lie algebra before any training.
 
-    The ROADMAP asks for the DLA and floor count of each arm to be recorded
-    *before* training. Wiring this node upstream of the fit makes that a property
-    of the flow rather than of anyone's discipline.
+    The DLA and floor count of each arm are recorded *before* training. Wiring
+    this node upstream of the fit makes that a property of the flow rather than
+    of anyone's discipline.
 
     Args:
         ansatz: Ansatz arm, one of :data:`partiqledtr.ansaetze.ANSAETZE`.
         n_qubits: Qubits per edge QFM.
-        max_dim: Cap on the Lie closure (``DECISIONS.md`` D54).
+        max_dim: Cap on the Lie closure; see :func:`dla_check`.
 
     Returns:
         The certificate of :func:`dla_check`, under the ``dla_report`` port.
@@ -593,11 +591,11 @@ def dla_report(*, ansatz: str = "XY_Brickwork", n_qubits: int = 4, max_dim: int 
     return {"dla_report": dla_check(ansatz=ansatz, n_qubits=n_qubits, max_dim=max_dim)}
 
 
-# --- arm characterisation (phase 4b) ----------------------------------------
+# --- arm characterisation ---------------------------------------------------
 
 
 @node(
-    # Circuit_19's Lie closure dominates and is silent throughout (D89).
+    # Circuit_19's Lie closure dominates and is silent throughout.
     timeout=1800,
     requires=[Port("n_qubits", "int")],
     provides=[Port("arm_report", "json")],
@@ -605,15 +603,14 @@ def dla_report(*, ansatz: str = "XY_Brickwork", n_qubits: int = 4, max_dim: int 
 def arm_report(*, n_qubits: int = 4, max_dim: int = 2000) -> dict[str, Any]:
     """Record every ansatz arm's certificate, prior scale and partition symmetry.
 
-    The phase-4b arm C table, as a run rather than as a number someone typed into
-    a document: the DLA dimension and floor count that decide whether an arm is
+    The ansatz-arm table, as a run rather than as a number someone typed into a
+    document: the DLA dimension and floor count that decide whether an arm is
     input-distribution sensitive, the uniform-prior mean its purities have to be
-    read against, and whether its bond set survives the endpoint swap
-    (``DECISIONS.md`` D98, D102).
+    read against, and whether its bond set survives the endpoint swap.
 
     Args:
         n_qubits: Qubits per edge QFM.
-        max_dim: Cap on each Lie closure (``DECISIONS.md`` D54).
+        max_dim: Cap on each Lie closure; see :func:`dla_check`.
 
     Returns:
         One record per arm under the ``arm_report`` port, plus its bonds.
@@ -649,15 +646,14 @@ def encoding_cells(
 ) -> dict[str, Any]:
     """Characterise every encoding-weight cell, and price it on synthetic angle laws.
 
-    Two things per cell of ROADMAP phase 4b arm B, neither of which needs a
-    dataset: what the cell *is* -- its weight matrix, per-feature spectrum,
-    dissociation and endpoint symmetry -- and what it *does* to the g-purity of a
-    uniform and of a clustered angle law.
+    Two things per encoding-weight cell, neither of which needs a dataset: what
+    the cell *is* -- its weight matrix, per-feature spectrum, dissociation and
+    endpoint symmetry -- and what it *does* to the g-purity of a uniform and of a
+    clustered angle law.
 
     The synthetic prices are the arm's prediction, recorded before the real
-    encodings are read so the measured table confirms rather than discovers
-    (``DECISIONS.md`` D102). ``encoding_purity`` is the same question on real
-    kinematics.
+    encodings are read so the measured table confirms rather than discovers.
+    ``encoding_purity`` is the same question on real kinematics.
 
     Args:
         n_qubits: Qubits per edge QFM.

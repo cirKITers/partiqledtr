@@ -1,11 +1,10 @@
-"""LCAG evaluation metrics (ROADMAP phase 2).
+"""LCAG evaluation metrics.
 
 All metrics take *predicted class indices*, not logits, so the argmax convention
 lives at the call site.  Masks are built from the ground truth only: a cell is
 scored iff its label is not an ignored class.  This follows baumbauen's
-definitions rather than partiqlegan's, whose masking compares "prediction
-correct" against "cell not ignored" and so scores agreement between two unrelated
-booleans (``DECISIONS.md`` D20).
+definitions; partiqlegan's accuracy and Perfect-LCAG reach the same numbers only
+because they first overwrite every ignored prediction with its label.
 
 Everything here is numpy and runs at evaluation time only -- the valid-tree rate
 has to reconstruct a tree per sample, which is inherently sequential Python.
@@ -14,7 +13,7 @@ Two ignore sets are used throughout:
 
 * ``IGNORE`` -- the padding/diagonal sentinel alone.
 * ``IGNORE_PRIMARY`` -- also drops class 0, giving a score over structural edges
-  only, excluding the trivially correct zero entries (``DECISIONS.md`` D21).
+  only, excluding the trivially correct zero entries.
 """
 
 from __future__ import annotations
@@ -128,7 +127,7 @@ def _reconstructs(
         # Every scored leaf has to survive. Otherwise a prediction that calls all
         # but two leaves disconnected reduces to a trivially valid two-leaf tree,
         # and nothing in the loss discourages that: class 0 is never a target, so
-        # it carries weight 0 (D49, D85).
+        # it carries weight 0.
         if not np.array_equal(rows, scored.any(axis=0)):
             return False
     elif rows.sum() < 2:
@@ -161,8 +160,8 @@ def valid_tree_rate(
     :func:`partiqledtr.data.lcag.lcag_to_adjacency`.
 
     The default is an **optimistic** measure and has to be reported as one. It is
-    permissive in two separate ways (``DECISIONS.md`` D42, D85): reconstruction is
-    greedy, so a matrix consistent with no single tree can still reduce to one --
+    permissive in two separate ways: reconstruction is greedy, so a matrix
+    consistent with no single tree can still reduce to one --
     on random symmetric matrices roughly 70% of the accepted ones do not reproduce
     their own input LCAG -- and dropping the leaves a prediction calls
     disconnected means a prediction that keeps only a single pair scores a valid

@@ -1,8 +1,8 @@
 # s2 — Expressivity: can the quantum arm be made to fit the task?
 
-ROADMAP phase 4b. **280 training runs**, every cell at 10 seeds, 40 epochs, on the
-30k-event dataset. Three independent arms, each holding everything else at the
-phase-4 configuration so only its own axis moves:
+**280 training runs**, every cell at 10 seeds, 40 epochs, on the 30k-event dataset.
+Three independent arms, each holding everything else at the baseline configuration
+(`XY_Brickwork`, Hamming weights, 2 layers) so only its own axis moves:
 
 | arm | axis | question |
 | --- | --- | --- |
@@ -22,13 +22,12 @@ encoding scores at or below the Hamming baseline.
 The result that reframes what is left: **the readout is outside the algebra.** The
 unflattening variance law needs the observable inside the DLA, and single-qubit Z is
 not in the DLA of any XY arm — so the preconditioner's effect on the encoded state has no
-channel to the loss. That is ROADMAP phase 4c item 1, and it comes before phase 5.
+channel to the loss. Putting the readout in the algebra is what s3
+(`dev/s3-readout-channel/`) tests.
 
 One arm did land: `XY_Ring` is floor-free *and* partition-respecting, and at equal
 parameter count gives +27% Perfect-LCAG and +36% valid trees over the arm it
 replaces.
-
-`docs/FINDINGS.md` is the claims; `docs/RESEARCH.md` §10 the measurement history.
 
 ## How to re-run it
 
@@ -41,7 +40,6 @@ dev/s2-expressivity/export.sh                    # the engine's own view, as csv
 ```
 
 `run.py` also runs in process (`--arm c`, no `--fluksio`), which is the sandbox path
-rather than a fork of the flow — it calls the same `train_model` the `fit` node calls
-(`docs/DECISIONS.md` D104). Everything reads and writes this folder's own `data/`,
-`results/`, `figures/` and `logs/`, all gitignored and all reproducible from
-`generate`.
+rather than a fork of the flow — it calls the same `train_model` the `fit` node calls.
+Everything reads and writes this folder's own `data/`, `results/`, `figures/` and
+`logs/`, all gitignored and all reproducible from `generate`.

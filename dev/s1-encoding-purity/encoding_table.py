@@ -1,9 +1,8 @@
 """Render the encoding x weight g-purity table of a finished ``generate`` run.
 
-ROADMAP phase 4b arm B's central question, answered without training anything:
+The central question of s2's encoding-weight arm, answered without training anything:
 spectral preconditioning is a property of data plus encoding, so if an exponential
-spectrum lifts a collapsed encoding off the floor it has to show here first
-(``DECISIONS.md`` D97).
+spectrum lifts a collapsed encoding off the floor it has to show here first.
 
     python dev/s1-encoding-purity/encoding_table.py <generate-run-id>
 """

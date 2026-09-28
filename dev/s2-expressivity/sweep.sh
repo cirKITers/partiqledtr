@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 4b at N seeds, through a Fluksio engine on this machine.
+# The expressivity arms at N seeds, through a Fluksio engine on this machine.
 #
 # Arms cheapest first; A last, because its deep circuits are unrolled and their
 # compile cost dominates (200 s per run at n_layers=2 against 6800 s at 16).

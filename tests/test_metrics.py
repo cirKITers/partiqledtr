@@ -124,7 +124,7 @@ def test_metrics_validate_their_inputs():
 
 
 def test_strict_valid_tree_rejects_a_prediction_that_keeps_only_one_pair():
-    """The lenient metric's second hole, and why strict is the primary number (D85).
+    """The lenient metric's second hole, and why strict is the primary number.
 
     Dropping the leaves a prediction calls disconnected means a model can score a
     valid tree by predicting class 0 everywhere but one pair -- and nothing in the

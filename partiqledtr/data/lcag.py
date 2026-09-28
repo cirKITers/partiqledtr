@@ -1,4 +1,4 @@
-"""LCAG construction, leaf shuffling and tree reconstruction (ROADMAP phase 1).
+"""LCAG construction, leaf shuffling and tree reconstruction.
 
 The lowest-common-ancestor generation (LCAG) matrix of a decay tree is the symmetric
 ``(L, L)`` matrix over the tree's final-state particles whose entry ``(i, j)`` counts the
@@ -201,7 +201,7 @@ def lcag_roundtrip(lcag: np.ndarray) -> np.ndarray:
     :func:`lcag_to_adjacency` is greedy, so a matrix consistent with no single tree
     can still reduce to one. Re-deriving the LCAG from that tree and comparing is
     the strict test the greedy one is not: it accepts a matrix only if the tree it
-    produces would produce the matrix back (``DECISIONS.md`` D85).
+    produces would produce the matrix back.
 
     Entries come back in the input's own value vocabulary rather than as
     consecutive generations, because the reconstruction ranks distinct values and a

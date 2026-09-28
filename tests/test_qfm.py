@@ -76,7 +76,7 @@ def test_encoding_is_a_ry_product_state(ansatz, n_layers, weights, reupload):
     feature to the qubits it claims, that a qubit's several RY gates add into one
     angle, that the observables come back interleaved ``[XX_b, YY_b]`` in bond
     order, that re-uploading multiplies the angle, and that the encoded state is
-    the RY product state the purity forms assume (D25, D55, D96, D107).
+    the RY product state the purity forms assume.
     """
     qfm = make_qfm(ansatz, n_layers=n_layers, seed=SEED, enc_weights=weights, enc_reupload=reupload)
     u = jnp.asarray(np.random.default_rng(SEED).uniform(0, np.pi, size=(5, N_QUBITS)))
@@ -94,11 +94,11 @@ def test_encoding_is_a_ry_product_state(ansatz, n_layers, weights, reupload):
 
 @pytest.mark.parametrize("ansatz", ANSAETZE)
 def test_readout_observables_are_in_the_algebra(ansatz):
-    """The premise of the variance law, asserted per arm (D107).
+    """The premise of the variance law, asserted per arm.
 
     ``Var = P_g(rho) P_g(O) / dim g`` needs ``O in i g``; a readout outside the
     algebra has ``P_g(O) = 0`` and no channel from the encoded state to the loss,
-    which is what phase 4b measured with per-qubit Z (``FINDINGS.md`` §2).
+    which is what was measured with the old per-qubit Z readout.
     """
     words = {word.to_pauli_string() for word in dla_basis(ansatz, N_QUBITS)}
     for bond in readout_bonds(ansatz):
@@ -107,7 +107,7 @@ def test_readout_observables_are_in_the_algebra(ansatz):
 
 
 def test_single_qubit_z_is_not_in_the_xy_algebras():
-    """The negative control that unmade D26: ``Z_q`` is outside every XY algebra,
+    """The negative control: ``Z_q`` is outside every XY algebra,
     so the old per-qubit readout satisfied the variance law's premise on none of
     the floor-free arms."""
     for ansatz in ("XY_Brickwork", "XY_Ring", "XY_AllPairs"):
@@ -117,7 +117,7 @@ def test_single_qubit_z_is_not_in_the_xy_algebras():
 
 @pytest.mark.parametrize("ansatz", ["XY_Cycle", "XY_Ladder", "XY_OddChord"])
 def test_phase6_readout_observables_are_in_the_algebra(ansatz):
-    """The D107 premise, asserted for the phase-6 graph arms at ``n = 6``."""
+    """The same premise, asserted for the graph arms at ``n = 6``."""
     words = {word.to_pauli_string() for word in dla_basis(ansatz, 6)}
     for bond in readout_bonds(ansatz, 6):
         assert _word("X", bond, 6) in words
@@ -168,7 +168,7 @@ def test_ternary_cyclic_is_the_dissociated_cell():
 
 
 def test_only_the_paired_exponent_is_dissociated_and_swap_equivariant():
-    """The cell that composes with a partition-respecting ansatz (D100).
+    """The cell that composes with a partition-respecting ansatz.
 
     Exponential weights `base ** q` distinguish the qubits, which is what makes
     them dissociated -- and the endpoint swap pi = (0 2)(1 3) exchanges the two
@@ -190,7 +190,7 @@ def test_only_the_paired_exponent_is_dissociated_and_swap_equivariant():
 
 
 def test_widening_the_mask_enlarges_the_per_feature_spectrum():
-    """The other half of arm B: a richer comb, not merely a bigger angle (D97).
+    """The other half of the encoding grid: a richer comb, not merely a bigger angle.
 
     Ternary weights on the diagonal mask only rescale one qubit's single frequency;
     it takes the widened mask for a feature to reach several qubits and for the
@@ -242,7 +242,7 @@ def test_pair_polar_maps_coordinate_pairs_into_the_full_circle():
 
 
 def test_three_angle_charts_extend_pair_polar():
-    """Each phase-6 chart is the pair-polar map plus one derived third angle.
+    """Each three-angle chart is the pair-polar map plus one derived third angle.
 
     On physical four-vectors (``E >= |p|``) the boost and mass charts land in
     ``[0, pi/2]`` and the polar chart in ``[0, pi]``; at ``|p| = 0`` the mass
@@ -378,11 +378,11 @@ def test_gradients_flow_through_the_quantum_edge_function_repeatedly():
 
 
 def test_widened_channels_widen_the_node_state_and_nothing_else():
-    """ROADMAP 4c item 2, the several-QFMs-per-edge route (D108).
+    """The several-QFMs-per-edge route to a wider node state.
 
     ``n_channels = K`` runs K independently initialised QFMs per block, so the
     inter-block node state widens from 2 to 2K numbers -- while the classical
-    parts stay particle-local (D27), the edge weights stay shared, and channel 0
+    parts stay particle-local, the edge weights stay shared, and channel 0
     of each block starts at exactly the K=1 parameters, so the widening adds
     draws without re-initialising the narrow model it contains.
     """
@@ -451,7 +451,7 @@ def test_sample_rotation_is_a_rotation():
 
 
 def test_whitening_rescues_clustered_angles():
-    """The phase-4 mechanism, end to end.
+    """The whitening rescue, end to end.
 
     Four-vectors whose pair second components are negligible encode angles near
     {0, pi}, where the floor-free g-purity collapses. A Haar rotation spreads them
@@ -499,12 +499,12 @@ def _clustered(rng, batch=6, n_leaves=4):
 
 @pytest.mark.parametrize("ansatz", ANSAETZE)
 def test_closed_form_and_exact_purity_agree_in_the_clustered_limit(ansatz):
-    """The one regime where the two purity observables must coincide (D78).
+    """The one regime where the two purity observables must coincide.
 
     Every encoding rotation tends to the identity as the angles cluster, and the
     g-purity is Ad-invariant under exp(g), so the product-state closed form and the
     real statevector agree there -- and only there. This is what licenses reading
-    the clustered-limit predictions of D51 off the closed form.
+    the per-arm clustered-limit floors off the closed form.
     """
     model = _model(ansatz=ansatz)
     x, mask = _clustered(np.random.default_rng(SEED))
@@ -518,7 +518,7 @@ def test_closed_form_and_exact_purity_agree_in_the_clustered_limit(ansatz):
 
 
 def test_g_purity_uses_the_encoded_angle_not_the_reuploaded_one():
-    """The closed form describes the state entering the first trainable block (D78).
+    """The closed form describes the state entering the first trainable block.
 
     Re-uploading multiplies the *effective* angle, but the product state the
     unflattening forms are derived for is the one at the first encoding, so the
@@ -534,7 +534,7 @@ def test_g_purity_uses_the_encoded_angle_not_the_reuploaded_one():
 
 
 def test_legacy_angle_map_clusters_where_pair_polar_does_not():
-    """The clustered control arm (D80), through the whole normalise-then-encode path.
+    """The clustered control arm, through the whole normalise-then-encode path.
 
     partiqlegan multiplied two unit-interval quantities. Real kinematics are mostly
     soft, so after max-normalisation both factors are small and their product
@@ -565,7 +565,7 @@ def test_legacy_angle_map_clusters_where_pair_polar_does_not():
 
 
 def test_whitening_accepts_a_nested_list_so_a_checkpoint_can_carry_it():
-    """The rotation is not an nnx.Param, so json is how it survives a round trip (D81)."""
+    """The rotation is not an nnx.Param, so json is how it survives a round trip."""
     rotation = sample_rotation(np.random.default_rng(SEED))
     x, mask = _batch(np.random.default_rng(SEED))
 
@@ -582,8 +582,9 @@ def test_whitening_node_does_not_fail_a_run_it_has_nothing_to_fit_on():
 
     ``whitening_rotation`` runs for every run so its acceptance report is always
     recorded. Making it reject an encoding without four-vectors broke every
-    classical run instead (D94); the fallback keeps D91's substance, because only
-    the QFM applies the rotation and the QFM accepts four-vectors alone.
+    classical run instead. The fallback still fits every applied rotation on the
+    features it rotates, because only the QFM applies the rotation and the QFM
+    accepts four-vectors alone.
     """
     from partiqledtr.data.whitening import _ROTATABLE
 

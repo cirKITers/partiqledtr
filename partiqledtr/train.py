@@ -1,17 +1,17 @@
-"""Training loop, checkpointing and the training flow's nodes (ROADMAP phase 2).
+"""Training loop, checkpointing and the training flow's nodes.
 
 The loop itself lives in :func:`train_model`, a plain generator over numpy arrays:
 Fluksio's ``save_artifact`` raises outside a running node, so keeping the pure part
 separate is what makes the whole thing testable without an engine (the same split
 :mod:`partiqledtr.data.dataset` uses for generation).
 
-Loss is class-weighted cross-entropy with the ``-1`` padding class ignored
-(``DECISIONS.md`` D22); checkpoints are ``np.savez`` state dictionaries rather than
-orbax (D23), carrying the settings needed to rebuild the model beside its parameters
-so :func:`evaluate` needs nothing but the artifact.
+Loss is class-weighted cross-entropy with the ``-1`` padding class ignored;
+checkpoints are ``np.savez`` state dictionaries rather than orbax (one artifact, no
+extra dependency), carrying the settings needed to rebuild the model beside its
+parameters so :func:`evaluate` needs nothing but the artifact.
 
 Everything here is classical, so the train and eval steps are wrapped in
-:func:`flax.nnx.jit`. Phase 3 replaces the model, not this file.
+:func:`flax.nnx.jit`. The quantum arm replaces the model, not this file.
 """
 
 from __future__ import annotations
@@ -62,12 +62,12 @@ __all__ = [
 CONFIG_KEY = "#config"
 
 #: Offset separating the preconditioner's rng stream from the model's, so attaching one
-#: does not re-initialise the other (``DECISIONS.md`` D84).
+#: does not re-initialise the other.
 _PRECONDITIONER_SEED_OFFSET = 1 << 20
 
 #: Seed of the g-purity measurement subset. Deliberately *not* the run's seed: every
 #: arm and every seed has to measure the observable on the same events, or a purity
-#: difference between two cells could be a difference between two samples (D105).
+#: difference between two cells could be a difference between two samples.
 _PURITY_SEED = 987654321
 
 
@@ -157,9 +157,9 @@ def build_model(
         seed: Seed of the parameter-initialisation rng.
         ansatz: Ansatz arm of the quantum model.
         n_layers: Data-reuploading depth of the quantum model.
-        n_channels: Independent QFMs per block of the quantum model (D108).
-        n_qubits: Qubits per edge QFM (ROADMAP phase 6); must match the angle
-            map's width, which the constellation checks at construction.
+        n_channels: Independent QFMs per block of the quantum model.
+        n_qubits: Qubits per edge QFM; must match the angle map's width, which the
+            constellation checks at construction.
         angle_map: Four-vector-to-angle map of the quantum model, a key of
             :data:`partiqledtr.models.qfm.ANGLE_MAPS`.
         enc_weights: Encoding weight strategy of the quantum model, a key of
@@ -171,7 +171,7 @@ def build_model(
         node_hidden: Hidden width of the non-linear node updates.
         node_omega: Scale at the block-2 re-encoding boundary of the quantum model.
         whitening: Optional fixed rotation for the quantum model's whitening arm.
-            A nested list is accepted, which is how a checkpoint carries it (D81).
+            A nested list is accepted, which is how a checkpoint carries it.
 
     Returns:
         The constructed model, with the preconditioner already attached.
@@ -189,14 +189,14 @@ def build_model(
 
     # Two independent streams. Built from one, the preconditioner's own draws would shift
     # every later draw, so a model *with* a preconditioner would not merely gain the front
-    # end -- its whole parameter set would be re-initialised, and the phase-4
-    # raw-versus-learned comparison would differ by an initialisation too (D84).
+    # end -- its whole parameter set would be re-initialised, and the raw-versus-learned
+    # preconditioner comparison would differ by an initialisation too.
     rngs = nnx.Rngs(seed)
     preconditioner_rngs = nnx.Rngs(seed + _PRECONDITIONER_SEED_OFFSET)
     preconditioner_cls = PRECONDITIONERS[preconditioner]
     cls = MODELS[model]
     # ``signature(cls)`` would resolve to the NNX metaclass' ``(*args, **kwargs)``,
-    # so the check has to read ``__init__`` directly (DECISIONS.md D62).
+    # so the check has to read ``__init__`` directly.
     accepted = inspect.signature(cls.__init__).parameters
     optional = {
         "n_blocks": n_blocks,
@@ -241,7 +241,7 @@ def jsonable(value: Any) -> Any:
     letting one leave the engine as a response nobody can parse. A metric over an
     empty subset is legitimately undefined, though -- an ``unknown`` split with no
     events, say -- so it travels as ``None``, which says the same thing and does
-    survive the wire (``DECISIONS.md`` D75).
+    survive the wire.
 
     Args:
         value: Any json-shaped structure.
@@ -352,7 +352,7 @@ def _split_arrays(
     Returns:
         ``(features (N, L, F) float32, mask (N, L) bool, labels (N, L, L) int32)``. The
         mask comes from ``n_fsps``, not from a feature heuristic: padding puts the real
-        particles in the first ``n_fsps`` rows (``DECISIONS.md`` D17).
+        particles in the first ``n_fsps`` rows.
 
     Raises:
         ValueError: If the encoding is unknown or the split lacks an expected array.
@@ -373,7 +373,7 @@ def _split_arrays(
 def _group_optimizer(
     module: nnx.Module, lr: float, lr_preconditioner: float | None, lr_qfm: float | None
 ) -> nnx.Optimizer:
-    """One Adam per parameter group, when any group rate differs (D109).
+    """One Adam per parameter group, when any group rate differs.
 
     Adam equalises per-parameter step sizes, so a shared base rate forces the
     preconditioner and the circuit to move at the same speed whatever their
@@ -488,7 +488,7 @@ def evaluate_split(
     if valid_trees:
         metrics["valid_tree"] = valid_tree_rate(predictions, labels)
         # The strict variant is the primary number; the lenient one is kept for
-        # comparability with the prior papers (``DECISIONS.md`` D85).
+        # comparability with the prior papers.
         metrics["valid_tree_strict"] = valid_tree_rate(predictions, labels, strict=True)
     return metrics
 
@@ -524,15 +524,15 @@ def train_model(
 ) -> Generator[dict[str, float], None, tuple[nnx.Module, dict[str, Any]]]:
     """Fit a model on the training split, reporting validation metrics per epoch.
 
-    Class weights are fitted on the training labels (``DECISIONS.md`` D22); class 0 is
-    never a target on this dataset and so gets weight 0 (D49).
+    Class weights are fitted on the training labels; class 0 is never a target on this
+    dataset (any two leaves share at least the root) and so gets weight 0.
 
     When the model exposes a ``g_purity`` method -- the quantum arm does -- the mean
     g-purity of its encoded states is measured on a fixed subset of validation
-    events every epoch and streamed alongside the losses. That is the phase-4
-    observable: read it against
+    events every epoch and streamed alongside the losses. That is the preconditioner
+    study's observable: read it against
     :func:`partiqledtr.analysis.offdiag_uniform_mean` to see the rescue dynamics
-    the unflattening theory predicts (``DECISIONS.md`` D51, D60).
+    the unflattening theory predicts.
 
     Args:
         train: Training split arrays.
@@ -548,18 +548,18 @@ def train_model(
         batch_size: Events per optimisation step.
         lr: Adam learning rate.
         lr_preconditioner: Optional separate Adam rate for the preconditioner's
-            parameters (D109); ``None`` shares ``lr``.
-        lr_qfm: Optional separate Adam rate for the circuit parameters (D109);
-            ``None`` shares ``lr``.
+            parameters; ``None`` shares ``lr``.
+        lr_qfm: Optional separate Adam rate for the circuit parameters; ``None``
+            shares ``lr``.
         ansatz: Ansatz arm of the quantum model; ignored by the classical ones.
         n_layers: Data-reuploading depth of the quantum model.
-        n_channels: Independent QFMs per block of the quantum model (D108).
-        n_qubits: Qubits per edge QFM of the quantum model (ROADMAP phase 6).
+        n_channels: Independent QFMs per block of the quantum model.
+        n_qubits: Qubits per edge QFM of the quantum model.
         angle_map: Four-vector-to-angle map of the quantum model. Pair it with the
             matching ``encoding``: ``"legacy"`` with ``"legacy"``, otherwise
             ``"cartesian"``.
-        enc_weights: Encoding weight strategy of the quantum model (arm B).
-        enc_reupload: Re-upload mask of the quantum model (arm B).
+        enc_weights: Encoding weight strategy of the quantum model.
+        enc_reupload: Re-upload mask of the quantum model.
         node_update: Node-update variant of the quantum model (trig-interface arm).
         node_hidden: Hidden width of the non-linear node updates.
         node_omega: Scale at the quantum model's block-2 re-encoding boundary.
@@ -608,8 +608,8 @@ def train_model(
         "node_omega": float(node_omega),
         # In the config, not beside it: the rotation is part of what the model *is*,
         # and it is not an nnx.Param, so a checkpoint that did not carry it would
-        # rebuild the whitened arm as the raw one and score it on the wrong angles
-        # (D81). 16 floats travel fine as json.
+        # rebuild the whitened arm as the raw one and score it on the wrong angles.
+        # 16 floats travel fine as json.
         "whitening": None if whitening is None else np.asarray(whitening).tolist(),
     }
     module = build_model(**config, seed=seed)
@@ -617,8 +617,8 @@ def train_model(
     weights = jnp.asarray(class_weights(labels, n_classes), dtype=jnp.float32)
 
     # A fixed validation subset, so the purity series tracks the model rather than
-    # the sample -- fixed *and* drawn across the split, which is not the same thing
-    # (D105). Only the arms that encode quantum states expose g_purity.
+    # the sample -- fixed *and* drawn across the split, which is not the same thing.
+    # Only the arms that encode quantum states expose g_purity.
     measure_purity = getattr(module, "g_purity", None)
     measure_angles = getattr(module, "angle_stats", None)
     measure_block2 = getattr(module, "block2_g_purity", None)
@@ -631,7 +631,7 @@ def train_model(
         val_features, val_mask, _ = _split_arrays(val, encoding)
         # Drawn at random, not sliced off the front: the split is ordered by
         # topology, so `val[:64]` is one topology at one multiplicity, and the
-        # observable then describes that corner rather than the data (D105).
+        # observable then describes that corner rather than the data.
         take = np.random.default_rng(_PURITY_SEED).choice(
             len(val_mask), size=min(n_purity_events, len(val_mask)), replace=False
         )
@@ -681,7 +681,7 @@ def train_model(
             "val_perfect": val_metrics["perfect"],
         }
         # Omitted rather than NaN when the model encodes no quantum state: a float
-        # port accepts neither a non-finite value nor None (``DECISIONS.md`` D75).
+        # port accepts neither a non-finite value nor None.
         if "g_purity" in val_metrics:
             record["g_purity"] = val_metrics["g_purity"]
         for name in ("tv_uniform", "mean_sin2"):
@@ -705,12 +705,12 @@ def train_model(
         final["g_purity_initial"] = initial_purity
         # The closed form is the theory's object; this is the state the circuit
         # actually prepares. Reporting both is what lets a claim name which one it
-        # is about (D78). Measured once, at the end: it is not jittable.
+        # is about. Measured once, at the end: it is not jittable.
         exact = getattr(module, "g_purity_exact", None)
         if exact is not None:
             final["g_purity_exact"] = exact(*purity_batch)
         # Per-site, start and end. Pooling hides the thing worth seeing: sites
-        # peaking at different angles average into something that looks flat (D92).
+        # peaking at different angles average into something that looks flat.
         if initial_angles is not None:
             final["angle_stats_initial"] = initial_angles
         if angles is not None:
@@ -741,9 +741,9 @@ def train_model(
         Port("epochs", "int"),
         Port("batch_size", "int"),
         Port("lr", "float"),
-        # Per-group overrides (D109). Nullable flow inputs are not expressible
-        # (NOTEPAD.md 2026-09-03), so the flow contract is: non-positive means
-        # "share lr" -- the body maps 0.0 to None before train_model.
+        # Per-group overrides. Fluksio cannot express a nullable flow input
+        # (Port(initial=None) means "no initial"), so these are float ports where
+        # non-positive means "share lr" -- the body maps 0.0 to None before train_model.
         Port("lr_preconditioner", "float"),
         Port("lr_qfm", "float"),
         Port("ansatz", "str"),
@@ -761,13 +761,12 @@ def train_model(
         Port("dla_report", "json"),
     ],
     # Yields per epoch, which resets the watchdog -- but the *first* epoch also pays
-    # for jit compilation, so the limit has to cover that rather than a steady one
-    # (``DECISIONS.md`` D89).
+    # for jit compilation, so the limit has to cover that rather than a steady one.
     timeout=2 * 60 * 60,
     # The fingerprint covers this function's source, not `train_model` where the
     # loop actually lives, so editing the helper silently replays a pre-change run
     # -- which for the node that produces the study's numbers is a correctness
-    # hazard, not an inconvenience (``DECISIONS.md`` D93).
+    # hazard, not an inconvenience.
     cache=False,
     provides=[
         Port("epoch", "int", stream=True),
@@ -829,32 +828,32 @@ def fit(
         epochs: Number of passes over the training split.
         batch_size: Events per optimisation step.
         lr: Adam learning rate.
-        lr_preconditioner: Separate rate for the preconditioner (D109);
-            non-positive shares ``lr`` (the flow contract, NOTEPAD.md 2026-09-03).
-        lr_qfm: Separate rate for the circuit parameters (D109); non-positive
-            shares ``lr``.
+        lr_preconditioner: Separate rate for the preconditioner; non-positive shares
+            ``lr``, because a Fluksio flow input cannot be null.
+        lr_qfm: Separate rate for the circuit parameters; non-positive shares
+            ``lr``.
         ansatz: Ansatz arm of the quantum model.
         n_layers: Data-reuploading depth of the quantum model.
-        n_channels: Independent QFMs per block of the quantum model (D108).
-        n_qubits: Qubits per edge QFM of the quantum model (D110).
+        n_channels: Independent QFMs per block of the quantum model.
+        n_qubits: Qubits per edge QFM of the quantum model.
         angle_map: Four-vector-to-angle map of the quantum model; pair ``"legacy"``
             with the ``"legacy"`` encoding.
-        enc_weights: Encoding weight strategy of the quantum model (arm B).
-        enc_reupload: Re-upload mask of the quantum model (arm B).
-        node_update: Node-update variant of the quantum model (D112).
-        node_hidden: Hidden width of the non-linear node updates (D112).
-        node_omega: Scale at the quantum model's re-encoding boundary (D112).
+        enc_weights: Encoding weight strategy of the quantum model.
+        enc_reupload: Re-upload mask of the quantum model.
+        node_update: Node-update variant of the quantum model.
+        node_hidden: Hidden width of the non-linear node updates.
+        node_omega: Scale at the quantum model's re-encoding boundary.
         whitening: Artifact reference to the fixed whitening rotation fitted by
             :func:`partiqledtr.data.whitening.whitening_rotation`. Always wired in
             the flow; applied only when ``whiten`` is set.
-        whiten: Select the phase-4 fixed-preconditioning arm. The rotation is
+        whiten: Select the fixed-preconditioning arm. The rotation is
             fitted regardless, so its acceptance report is recorded for every run,
             but with ``whiten=False`` the model encodes the raw angles -- that is
-            the ROADMAP's "raw" arm.
+            the "raw" arm.
         dla_report: Optional DLA certificate from
             :func:`partiqledtr.analysis.dla_report`. Not used by the fit itself --
             requiring it here is what makes the flow record the arm's algebra
-            before any training happens, as the ROADMAP asks.
+            before any training happens.
         n_purity_events: Validation events the g-purity is measured on each epoch.
 
     Yields:
@@ -905,7 +904,7 @@ def fit(
 
 
 @node(
-    # Reconstructs a tree per test event in Python, silent throughout (D89).
+    # Reconstructs a tree per test event in Python, silent throughout.
     timeout=43200,
     requires=[
         Port("checkpoint", "artifact"),
@@ -924,8 +923,8 @@ def evaluate(
 
     The test split mixes topologies the model trained on (group 0) with topologies it
     has never seen (groups 1 and 2), so the ``known``/``unknown`` pair is the
-    generalisation probe of ``DECISIONS.md`` D16. Reporting only the overall number
-    would average the two together and hide the answer.
+    generalisation probe. Reporting only the overall number would average the two
+    together and hide the answer.
 
     Args:
         checkpoint: Checkpoint artifact reference from :func:`fit`.
@@ -950,7 +949,7 @@ def evaluate(
     known = group[split["topology_id"]] == 0
     subsets = {"overall": np.ones_like(known), "known": known, "unknown": ~known}
     # A subset with no events scores NaN, which no port accepts; `jsonable` turns
-    # those into None so "not measured" still travels (DECISIONS.md D75).
+    # those into None so "not measured" still travels.
     return jsonable(
         {
             "test_metrics": {

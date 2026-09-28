@@ -1,14 +1,14 @@
-"""Kinematic features, normalisation and padding (ROADMAP phase 1).
+"""Kinematic features, normalisation and padding.
 
 Four-vectors are laid out ``[px, py, pz, E]``, the layout phasespace returns (verified
-empirically, DECISIONS.md D13). Three encodings are supported and all are stored per split
-(D19): ``"angles"`` gives ``(theta, phi, E)``, the natively periodic direction features the
+empirically). Three encodings are supported and all are stored per split:
+``"angles"`` gives ``(theta, phi, E)``, the natively periodic direction features the
 QFM encoding is built for, ``"cartesian"`` keeps ``(px, py, pz, E)`` for the ablation and
 for the quantum arm's polar map, and ``"legacy"`` keeps the four-vector but scales it the
 way partiqlegan did -- momenta into ``[-1, 1]``, energy into ``[0, 1]`` -- so that
 :func:`partiqledtr.models.qfm.legacy_angles` reproduces that work's ``p * E * pi`` product
 encoding, whose factors then both live in the unit interval and whose product therefore
-concentrates near zero (D18, D80). ``"legacy"`` is the *clustered control arm*, not a
+concentrates near zero. ``"legacy"`` is the *clustered control arm*, not a
 candidate encoding.
 
 Conventions decided here:
@@ -17,8 +17,8 @@ Conventions decided here:
   at the origin of feature space and survive the round trip through
   :func:`to_cartesian`,
 * normalisation is scale-only and computed over rows with ``E > 0``, i.e. padded rows
-  never enter a scale (a shift would let energies go negative, D18),
-* :func:`pad_events` is the single owner of the ``-1`` ignore convention (D17).
+  never enter a scale (a shift would let energies go negative),
+* :func:`pad_events` is the single owner of the ``-1`` ignore convention.
 """
 
 import numpy as np
@@ -27,7 +27,7 @@ _FEATURE_DIM = {"angles": 3, "cartesian": 4, "legacy": 4}
 
 #: Encodings whose four-vectors are scaled by the maximum rather than the mean, so
 #: that momenta land in ``[-1, 1]`` and energies in ``[0, 1]`` exactly as partiqlegan
-#: normalised them (``DECISIONS.md`` D80).
+#: normalised them.
 LEGACY_ENCODING = "legacy"
 
 
@@ -100,9 +100,9 @@ def normalization_scales(train_features: np.ndarray, encoding: str) -> dict[str,
 
     ``"legacy"`` is the exception and uses the **maximum** instead, because its whole
     point is to reproduce partiqlegan's bounded normalisation: momenta into ``[-1, 1]``
-    and energy into ``[0, 1]``, so that a product of the two concentrates near zero
-    (``DECISIONS.md`` D80). Using the mean there would leave the factors ``O(1)`` rather
-    than ``<= 1`` and the arm would not be clustered at all.
+    and energy into ``[0, 1]``, so that a product of the two concentrates near zero.
+    Using the mean there would leave the factors ``O(1)`` rather than ``<= 1`` and the
+    arm would not be clustered at all.
 
     Args:
         train_features: ``(..., F)`` features of the *training* split only.
@@ -180,7 +180,7 @@ def pad_events(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Pad events and labels to a fixed leaf count.
 
-    The single place where the ``-1`` ignore convention is applied (D17): padded feature
+    The single place where the ``-1`` ignore convention is applied: padded feature
     rows are ``0.0``, padded label entries are ``-1``, and the label diagonal is ``-1``
     throughout, padded or not. One artifact shape means one jitted training step.
 

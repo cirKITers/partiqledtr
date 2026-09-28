@@ -1,4 +1,4 @@
-"""Decay topology sampling (ROADMAP phase 1).
+"""Decay topology sampling.
 
 A topology is a plain nested dict ``{"name": str, "mass": float, "children": list}``;
 a final-state particle (FSP) is a node with an empty child list. Particles are identified
@@ -16,7 +16,7 @@ deviations:
   gets at least two children, instead of the reference's early ``break`` that can leave a
   node with one or zero children,
 * the requested FSP count is reached by rejecting whole draws instead of the reference's
-  offline seed scan (DECISIONS.md D15).
+  offline seed scan, so the FSP count is controllable.
 """
 
 from collections.abc import Callable
@@ -157,7 +157,7 @@ def shape_form(topology: dict) -> str:
     tree shape, and masses are not model inputs. Two topologies with different
     masses and the same shape therefore carry the *same* label matrix, so deduping
     on the mass-labelled form alone would let a group-C "unseen" topology repeat a
-    label the model already trained on (``DECISIONS.md`` D82).
+    label the model already trained on.
 
     Args:
         topology: The topology to encode.
@@ -184,17 +184,17 @@ def sample_topologies(
     """Draw pairwise non-isomorphic topologies, grouped for the known/unknown split.
 
     FSP counts cycle through ``[min_fsps, max_fsps]`` so every group covers the range.
-    The groups feed the generalisation probe of DECISIONS.md D16 (group A to
+    The groups feed the known/unknown generalisation probe (group A to
     train/val/test, B to val/test, C to test only).
 
     Topologies are pairwise non-isomorphic **as unlabelled shapes**, not merely as
-    mass-labelled trees (D82). That is what the generalisation probe needs: an
+    mass-labelled trees. That is what the generalisation probe needs: an
     "unseen" topology whose shape the model already trained on would carry a label
     matrix it has seen, and the probe would silently measure memorisation.
 
     Groups are dealt round-robin from the draw sorted by leaf count, so their
     multiplicity profiles match as closely as the counts allow: the probe has to
-    measure familiarity with a topology, not the size of one (D83). ``per_group``
+    measure familiarity with a topology, not the size of one. ``per_group``
     must still be at least the FSP span, or a group cannot cover the range at all.
 
     The number of distinct shapes at a *small* leaf count is genuinely small --
@@ -214,7 +214,7 @@ def sample_topologies(
         is_viable: Optional extra predicate a candidate must satisfy. Injected
             rather than imported so this module stays free of the generator: the
             caller uses it to reject topologies whose phase-space acceptance rate
-            is too low to sample (``DECISIONS.md`` D90).
+            is too low to sample.
 
     Returns:
         ``n_groups`` lists of ``per_group`` topologies, all pairwise non-isomorphic
@@ -257,7 +257,7 @@ def sample_topologies(
     # Deal by leaf count rather than slicing the draw order. Small counts have few
     # shapes, so they are exhausted first; slicing would hand group A the small
     # trees and group C only the large ones, and the known/unknown probe would
-    # compare multiplicities instead of familiarity (D83).
+    # compare multiplicities instead of familiarity.
     flat.sort(key=count_fsps)
     return [flat[g::n_groups] for g in range(n_groups)]
 
@@ -284,7 +284,7 @@ def _draw_unseen_shape(
             topology = sample_topology(
                 rng, n_fsps=n_fsps, max_depth=max_depth, isp_weight=isp_weight
             )
-            # Keyed on the unlabelled shape: that is what the LCAG label sees (D82).
+            # Keyed on the unlabelled shape: that is what the LCAG label sees.
             if shape_form(topology) in seen:
                 continue
             if is_viable is None or is_viable(topology):

@@ -5,13 +5,12 @@ flow would skip regeneration anyway, but the split still earns its place: genera
 and training have different parameter axes, generation is expensive and offline, and
 one dataset feeds many training runs.
 
-``characterize`` is the third, and it consumes no data at all. Everything phase 4b
-records *about* its arms rather than *from* them -- each ansatz's DLA certificate,
+``characterize`` is the third, and it consumes no data at all. Everything recorded
+*about* the study arms rather than *from* them -- each ansatz's DLA certificate,
 floor count, prior scale and endpoint symmetry; each encoding cell's weight matrix,
 spectrum, dissociation and synthetic purity; the sampler's distinct-shape ceiling --
-belongs to a run with a commit stamp, not to a number pasted into a document
-(``DECISIONS.md`` D102). It is cheap and deterministic, so re-running it after any
-change to an arm is close to free.
+belongs to a run with a commit stamp, not to a number pasted into a document. It is
+cheap and deterministic, so re-running it after any change to an arm is close to free.
 
     fluksio serve                                     # the engine, once
     fluksio sync partiqledtr                          # upload the flows
@@ -20,11 +19,11 @@ change to an arm is close to free.
         --dataset_test <ref> --dataset_meta <ref> --model gnn --epochs 100
 
 ``generate`` also runs ``encoding_report``, which prices each candidate encoding in
-g-purity (D88), crossed with every encoding-weight arm of phase 4b (D97): whether a
-decay-tree model's inputs land in the barren regime at all is decided there, before
-any model exists, and the table is a result in its own right.
+g-purity, crossed with every encoding-weight cell: whether a decay-tree model's inputs
+land in the barren regime at all is decided there, before any model exists, and the
+table is a result in its own right.
 
-The ``train`` flow also carries the phase-3/4 instrumentation. ``dla_report`` runs
+The ``train`` flow also carries the theory instrumentation. ``dla_report`` runs
 upstream of ``fit`` and its certificate is a *required* input there, so the arm's
 dynamical Lie algebra and floor count are recorded before any training happens --
 enforced by the flow's shape rather than by anyone remembering. ``whitening_rotation``
@@ -43,16 +42,16 @@ An ablation cell is one run of this one flow:
 
 The clustered control arm is the same flow with ``--encoding legacy --angle_map
 legacy``: partiqlegan's ``p * E * pi`` product, whose encoding angles collapse toward
-zero, which is where the unflattening rescue prediction is falsifiable (D80).
+zero, which is where the unflattening rescue prediction is falsifiable.
 
-Phase 4b adds three axes to the same flow and nothing else: ``n_layers`` (arm A),
-``enc_weights`` x ``enc_reupload`` (arm B) and the new ``ansatz`` arms (arm C).
-Phases 4c and 6 add theirs the same way: ``n_channels`` (D108), the per-group
-``lr_preconditioner``/``lr_qfm`` overrides (D109), ``n_qubits`` (D110) and the
-``node_update``/``node_hidden``/``node_omega`` trig-interface axis (D112) -- so
-every study cell is one *versioned* run of this one flow, which is the point:
-studies submit through the engine (s2's ``run_arm_fluksio`` pattern) and the
-in-process drivers remain the sandbox path (D113).
+The other study axes are inputs of the same flow and nothing else: depth
+(``n_layers``), encoding weights (``enc_weights`` x ``enc_reupload``), ``ansatz``,
+node-state width (``n_channels``), per-group learning rates
+(``lr_preconditioner``/``lr_qfm``), register size (``n_qubits``) and the
+trig-interface node update (``node_update``/``node_hidden``/``node_omega``) -- so
+every study cell is one *versioned* run of this one flow, with a run id, commit stamp
+and streamed metrics. Studies submit through the engine (s2's ``run_arm_fluksio``
+pattern); the in-process drivers remain the sandbox path.
 
 Declarations only: the nodes live in :mod:`partiqledtr.data.dataset`,
 :mod:`partiqledtr.data.whitening`, :mod:`partiqledtr.analysis` and
@@ -73,7 +72,7 @@ generate = Flow(
     inputs=[
         Port("seed", "int", initial=0),
         # Per group, so the default is 30 topologies over the three known/unknown
-        # groups -- the ROADMAP's ">=10 topologies, ~1000 events/topology".
+        # groups, at 1000 events each.
         Port("n_topologies", "int", initial=10),
         Port("n_events_per_topology", "int", initial=1000),
         Port("min_fsps", "int", initial=3),
@@ -92,7 +91,7 @@ generate = Flow(
 
 characterize = Flow(
     "characterize",
-    title="Characterise the phase-4b arms, before any data",
+    title="Characterise the study arms, before any data",
     nodes=[arm_report, encoding_cells, shape_ceiling],
     inputs=[
         Port("n_qubits", "int", initial=4),
@@ -121,9 +120,10 @@ train = Flow(
         Port("epochs", "int", initial=100),
         Port("batch_size", "int", initial=64),
         Port("lr", "float", initial=1e-3),
-        # Per-group overrides (D109). Nullable inputs are not expressible yet
-        # (NOTEPAD.md 2026-09-03), so the flow contract is: non-positive means
-        # "share lr". The 0.0-freeze diagnostic stays on the in-process path.
+        # Per-group overrides. Fluksio cannot express a nullable flow input
+        # (Port(initial=None) means "no initial"), so these are float ports where
+        # non-positive means "share lr". The 0.0-freeze diagnostic stays on the
+        # in-process path.
         Port("lr_preconditioner", "float", initial=0.0),
         Port("lr_qfm", "float", initial=0.0),
         Port("ansatz", "str", initial="XY_Brickwork"),

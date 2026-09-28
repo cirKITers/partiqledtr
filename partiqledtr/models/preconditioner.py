@@ -1,4 +1,4 @@
-"""Elementwise residual preconditioner (ROADMAP phases 2-4)."""
+"""Elementwise residual preconditioner."""
 
 import jax
 import jax.numpy as jnp
@@ -10,14 +10,14 @@ class ElementwiseResidualMLP(nnx.Module):
 
     ``phi(x)_f = x_f + sum_h w2[f, h] * tanh(w1[f, h] * x_f + b1[f, h])``
 
-    Two properties are load-bearing for the phase-4 preconditioner study and hold by
+    Two properties are load-bearing for the preconditioner study and hold by
     construction, for any parameter values, rather than by convention:
 
     1. **Features cannot mix.** Every parameter carries a leading feature axis and is
        contracted with an einsum that never sums over it, so ``d phi_f / d x_g == 0``
        exactly for ``f != g``. The preconditioner may only reshape per-feature marginals;
        cross-feature and cross-particle structure has to come from the model it feeds
-       (the QFM constellation in phase 3).
+       (e.g. the QFM constellation).
     2. **It starts as the identity.** ``w2`` is zero-initialised, so ``phi(x) == x``
        bit-for-bit at epoch 0 and an arm with a preconditioner starts from exactly the same
        function as the arm without one.
@@ -49,8 +49,7 @@ class ElementwiseResidualMLP(nnx.Module):
         # Pinned for the same reason `nnx.Linear` pins `param_dtype`: without an
         # explicit dtype these follow the global `jax_enable_x64` flag, so with x64
         # on they would come out float64 while every Linear in the model stayed
-        # float32, and the preconditioner would silently promote the whole forward pass
-        # (DECISIONS.md D7a).
+        # float32, and the preconditioner would silently promote the whole forward pass.
         # Random slopes and biases spread the tanh kinks over the input range. Zeroing
         # w2 also zeroes the gradient w.r.t. w1 and b1 at step 0, so w2 moves first.
         self.w1 = nnx.Param(jax.random.normal(rngs.params(), shape, dtype=param_dtype))

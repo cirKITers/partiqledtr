@@ -26,7 +26,7 @@ from partiqledtr.analysis import (
 from partiqledtr.ansaetze import ANSAETZE, circuit
 
 # The two closed forms production no longer carries: `product_state_purity` reads
-# them off the DLA basis instead (D94). They stay here as independent oracles --
+# them off the DLA basis instead. They stay here as independent oracles --
 # hand-derived from the manuscript, so a bug in the general routine cannot hide.
 
 
@@ -276,7 +276,7 @@ def test_purity_batches_over_leading_axes():
 @pytest.mark.parametrize("ansatz", list(CLOSED_FORMS))
 @pytest.mark.parametrize("n", [2, 3, 4])
 def test_product_state_purity_reproduces_the_closed_forms(ansatz, n):
-    """The general routine against the three hand-derived series (D94).
+    """The general routine against the three hand-derived series.
 
     `product_state_purity` sums over the arm's own DLA basis, which is what lets a
     new ansatz be measured at all; that generality is only worth having if it
@@ -312,12 +312,12 @@ def test_uniform_prior_mean_generalises_the_offdiag_closed_form(n):
     ],
 )
 def test_arm_certificates_at_the_constellation_size(ansatz, dim_g, d_z, pi_invariant):
-    """What each phase-4b arm is, measured rather than asserted (ROADMAP 4b arm C).
+    """What each ansatz arm is, measured rather than asserted.
 
     `XY_Ring` is the load-bearing one: the 4-cycle is an even cycle, hence
     bipartite, hence d_Z = 0, so it respects the two-particle partition *and* stays
-    input-distribution sensitive -- the two criteria the ROADMAP expected to
-    conflict. `XY_AllPairs` adds triangles and the floor comes back.
+    input-distribution sensitive -- two criteria expected to conflict. `XY_AllPairs`
+    adds triangles and the floor comes back.
     """
     record = dla_check(ansatz, n_qubits=4)
     assert (record["dim_g"], record["n_diag_words"]) == (dim_g, d_z)
@@ -341,7 +341,7 @@ def test_arm_certificates_at_the_constellation_size(ansatz, dim_g, d_z, pi_invar
     [("XY_Cycle", 60, 0), ("XY_Ladder", 510, 0), ("XY_OddChord", 1020, 30)],
 )
 def test_phase6_arm_certificates_at_six_qubits(ansatz, dim_g, d_z):
-    """The graph trichotomy of ROADMAP phase 6, measured rather than asserted.
+    """The graph trichotomy at six qubits, measured rather than asserted.
 
     The even cycle is bipartite and floor-free at a polynomial closure; the
     ladder's middle rung adds a degree-3 vertex (the manuscript's
@@ -425,11 +425,11 @@ def test_cap_truncates_and_says_so(ansatz):
 
 
 def test_retired_arms_stay_certifiable():
-    """Matchgate is no longer an arm but must stay measurable (D98).
+    """Matchgate is no longer an arm but must stay measurable.
 
     "Retired" means out of the reported arm set, not out of the codebase: the
-    phase-4 cells of RESEARCH.md §7 have to remain reproducible, and the Matchgate
-    certificate is the independent check on `ansatz_generators` itself.
+    preconditioning-study cells that used it have to remain reproducible, and the
+    Matchgate certificate is the independent check on `ansatz_generators` itself.
     """
     assert "Matchgate" not in ANSAETZE
     record = dla_check("Matchgate", n_qubits=4)
@@ -437,7 +437,7 @@ def test_retired_arms_stay_certifiable():
 
 
 def test_exact_purity_matches_the_closed_form_on_a_product_state():
-    """The two purity routes have to agree where they describe the same state (D78).
+    """The two purity routes have to agree where they describe the same state.
 
     With no ansatz in the way, the encoded state *is* the RY product state, so the
     closed form and the sum over the DLA basis must coincide -- which is what makes
@@ -458,7 +458,7 @@ def test_exact_purity_matches_the_closed_form_on_a_product_state():
 
 
 def test_angle_stats_separates_uniform_pinned_and_clustered():
-    """The discriminator the g-purity cannot provide (D92).
+    """The discriminator the g-purity cannot provide.
 
     A purity rises both when angles spread toward uniform and when they pin near
     pi/2 -- the true maximum, and the configuration that destroys the input
@@ -510,11 +510,11 @@ def test_angle_stats_rejects_malformed_input():
 
 
 def test_characterisation_nodes_record_what_the_tables_claim():
-    """The phase-4b tables have to come from a run, not from a typed-in number (D102).
+    """The arm and encoding tables have to come from a run, not from a typed-in number.
 
     Cheap enough to check end to end: the arm certificates and the encoding-cell
-    characterisation are what `RESEARCH.md` §10 reports, so a drift between code
-    and document shows up here rather than in review.
+    characterisation are what gets quoted, so a drift between code and quoted
+    numbers shows up here rather than in review.
     """
     from partiqledtr.analysis import arm_report, encoding_cells
 
@@ -522,14 +522,14 @@ def test_characterisation_nodes_record_what_the_tables_claim():
     assert set(arms) == set(ANSAETZE)
     assert arms["XY_Ring"]["n_diag_words"] == 0 and arms["XY_Ring"]["dim_g"] == 24
     assert arms["XY_AllPairs"]["n_diag_words"] == 6
-    # The arm C claim in one line: partition-respecting and still floor-free.
+    # The XY_Ring claim in one line: partition-respecting and still floor-free.
     assert arms["XY_Ring"]["swap_invariant"] and not arms["XY_Brickwork"]["swap_invariant"]
 
     cells = encoding_cells(n_qubits=4, n_samples=2000)["encoding_cells"]
     assert not cells["hamming-cyclic"]["dissociated"]
     assert cells["ternary-cyclic"]["dissociated"]
     # Among the cells that actually enrich the spectrum, only the paired exponent
-    # is both dissociated and swap-invariant -- which is why it exists (D100). The
+    # is both dissociated and swap-invariant -- which is why it exists. The
     # diagonal cells qualify vacuously: a diagonal W has no cross terms to kill and
     # no per-feature comb to widen, so they are excluded by n_freqs, not by hand.
     enriching = {
