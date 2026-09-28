@@ -21,8 +21,17 @@ Runs in process against the splits ``dev/s2-expressivity/data`` exported from
 generate run ``1787760161002-8bde9189`` -- the same data, deliberately, so the
 readout is the only thing that moved between the studies.
 
+``--fluksio`` repeats the full grid, plus the classical GNN baseline, on every
+dataset of the shared registry ``dev/datasets.json`` as versioned runs: dataset 0
+is the pinned run above, ``--generate`` adds generate seeds 1-4 (README, dataset
+repeat). Its records land in ``results/datasets/``, apart from the in-process
+history.
+
     python dev/s3-readout-channel/run.py            # run the smoke block
     python dev/s3-readout-channel/run.py --report   # tables + correlations
+    python dev/s3-readout-channel/run.py --generate           # datasets 1-4 into the registry
+    python dev/s3-readout-channel/run.py --fluksio            # full grid x datasets, versioned
+    python dev/s3-readout-channel/run.py --fluksio --report   # the same tables, per dataset
 """
 
 from __future__ import annotations
@@ -39,6 +48,12 @@ STUDY = Path(__file__).resolve().parent
 #: The s2 export of the pinned generate run, reused unchanged (module docstring).
 DATA = STUDY.parent / "s2-expressivity" / "data"
 OUT = STUDY / "results"
+
+#: The pinned generate run ``DATA`` was exported from: dataset 0 of the registry.
+GENERATE_RUN = "1787760161002-8bde9189"
+#: Dataset seed -> generate run id, shared with s4.
+DATASETS = STUDY.parent / "datasets.json"
+DATASET_SEEDS = (0, 1, 2, 3, 4)
 
 BASE: dict[str, Any] = {
     "model": "qfm",
@@ -111,6 +126,125 @@ def cells_full() -> list[dict[str, Any]]:
         "angle_map": "legacy",
     }
     return [*grid, control]
+
+
+def cells_datasets() -> list[dict[str, Any]]:
+    """The full grid plus the phase-4b classical baseline, for the dataset repeat."""
+    return [*cells_full(), {"model": "gnn", "encoding": "cartesian", "dim": 64}]
+
+
+def datasets() -> dict[int, str]:
+    """The registry: dataset seed -> generate run id, the pinned run alone if absent."""
+    if not DATASETS.exists():
+        return {0: GENERATE_RUN}
+    return {int(seed): run for seed, run in json.loads(DATASETS.read_text()).items()}
+
+
+def generate(client: Any) -> None:
+    """Generate the missing registry datasets at the flow defaults (the pinned design).
+
+    The pinned run stands in for seed 0 rather than a fresh generate, which need
+    not reproduce it with today's code (README, dataset repeat). All pending
+    seeds are submitted at once; a run enters the registry only once its split
+    integrity check passes.
+    """
+    runs = datasets()
+    pending = {
+        seed: client.submit("generate", {"seed": seed}, seed=seed)
+        for seed in DATASET_SEEDS
+        if seed not in runs
+    }
+    for seed, handle in pending.items():
+        handle.wait(poll=30.0)
+        ok = (handle.result.get("stats") or {}).get("split_integrity_ok")
+        print(f"  dataset {seed}: {handle.id} {handle.status}, split_integrity_ok={ok}", flush=True)
+        if handle.status == "ok" and ok:
+            runs[seed] = handle.id
+            DATASETS.write_text(json.dumps({str(k): v for k, v in sorted(runs.items())}, indent=1))
+
+
+def _dataset(client: Any, run_id: str) -> dict[str, Any]:
+    """The dataset inputs of the ``train`` flow, as a generate run recorded them."""
+    result = client.run(run_id).get("result") or {}
+    names = ("dataset_train", "dataset_val", "dataset_test", "dataset_meta")
+    missing = [name for name in names if name not in result]
+    if missing:
+        raise SystemExit(f"run {run_id} has no {missing}; is it a finished generate run?")
+    return {name: result[name] for name in names}
+
+
+def _trace(client: Any, run_id: str) -> list[dict[str, float]]:
+    """Reassemble the per-epoch trace from a run's streamed metrics (s4's helper)."""
+    series: dict[str, list[float]] = {}
+    for key in TRACE_KEYS:
+        rows = client.metrics(run_id, f"train.{key}")
+        if rows:
+            series[key] = [row["value"] for row in sorted(rows, key=lambda row: row["step"])]
+    length = min((len(v) for v in series.values()), default=0)
+    return [{key: series[key][i] for key in series} for i in range(length)]
+
+
+def _key(record: dict[str, Any]) -> str:
+    return json.dumps({**record["cell"], "dataset": record.get("dataset", 0)}, sort_keys=True)
+
+
+def run_fluksio(
+    block: list[dict[str, Any]], filename: str, *, seeds: int, jobs: int, epochs: int, out: Path
+) -> list[dict[str, Any]]:
+    """Every cell x seed on every registry dataset, as versioned ``train`` runs.
+
+    Seed-major order, so a grid stopped part-way leaves every dataset at the same
+    number of seeds. Failed runs are not counted as done and are resubmitted.
+    """
+    import time as clock
+
+    from fluksio.sdk.client import Client
+
+    client = Client()
+    data = {seed: _dataset(client, run) for seed, run in datasets().items()}
+    path = out / filename
+    done: list[dict[str, Any]] = json.loads(path.read_text()) if path.exists() else []
+    seen = {_key(r) for r in done if "error" not in r}
+    queue = [
+        {"dataset": dataset, "cell": {**cell, "seed": seed}}
+        for seed in range(seeds)
+        for dataset in sorted(data)
+        for cell in block
+    ]
+    queue = [entry for entry in queue if _key(entry) not in seen]
+    total = len(seen) + len(queue)
+    print(f"datasets {sorted(data)}: {len(queue)} to submit ({len(seen)} done), {jobs} in flight")
+
+    inflight: list[tuple[dict[str, Any], Any]] = []
+    while queue or inflight:
+        while queue and len(inflight) < jobs:
+            entry = queue.pop(0)
+            params = {**data[entry["dataset"]], **entry["cell"], "epochs": epochs}
+            inflight.append((entry, client.submit("train", params, seed=entry["cell"]["seed"])))
+        clock.sleep(10.0)
+        for entry, handle in list(inflight):
+            if not handle.refresh().done:
+                continue
+            inflight.remove((entry, handle))
+            record = {**entry, "run": handle.id}
+            if handle.status == "ok":
+                payload = handle.result
+                record |= {
+                    "final_metrics": payload.get("final_metrics"),
+                    "test_metrics": {
+                        name: (payload.get("test_metrics") or {}).get(name)
+                        for name in ("known", "unknown")
+                    },
+                    "trace": _trace(client, handle.id),
+                }
+            else:
+                record["error"] = handle.status
+            done.append(record)
+            path.write_text(json.dumps(done, indent=1))
+            ok = sum("error" not in r for r in done)
+            name = f"d{entry['dataset']} seed={entry['cell']['seed']} {label(entry['cell'])}"
+            print(f"  [{ok}/{total}] {handle.status} {name}", flush=True)
+    return done
 
 
 def load(name: str) -> dict[str, Any]:
@@ -220,6 +354,8 @@ def correlations(trace: list[dict[str, float]]) -> dict[str, float | None]:
     import numpy as np
     from scipy import stats
 
+    if not trace or "g_purity" not in trace[0]:  # classical baseline: no encoded state
+        return dict.fromkeys(("pearson", "spearman", "pearson_diff", "spearman_diff"))
     purity = np.asarray([r["g_purity"] for r in trace])
     loss = np.asarray([r["val_loss"] for r in trace])
 
@@ -248,7 +384,14 @@ def _stat(values: list[float | None], places: int = 2) -> str:
 
 
 def report(out: Path) -> None:
-    """One row per cell: task numbers, the purity trajectory, and the correlations."""
+    """One row per cell: task numbers, the purity trajectory, and the correlations.
+
+    Records from ``--fluksio`` carry their dataset: the accuracy then also gets its
+    spread over the per-dataset means, and a second table pairs every mlp run with
+    its none twin (same arm, input law, dataset and seed).
+    """
+    import numpy as np
+
     from partiqledtr.analysis import uniform_prior_mean
 
     rows: dict[str, list[dict[str, Any]]] = {}
@@ -258,25 +401,51 @@ def report(out: Path) -> None:
                 rows.setdefault(label(record["cell"]), []).append(record)
 
     print(
-        "\n| cell | n | train loss | acc known | purity/mu_n | r(P,L) spearman "
-        "| r(dP,dL) pearson | r(dP,dL) spearman |"
+        "\n| cell | n | train loss | acc known | sd over datasets | purity/mu_n "
+        "| r(P,L) spearman | r(dP,dL) pearson | r(dP,dL) spearman |"
     )
-    print("| --- | --- | --- | --- | --- | --- | --- | --- |")
+    print("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+    acc: dict[tuple, float] = {}
     for name, group in rows.items():
         final = [r["final_metrics"] for r in group]
         known = [r["test_metrics"]["known"] for r in group]
         series = [correlations(r["trace"]) for r in group]
-        mu = uniform_prior_mean(final[0]["config"].get("ansatz", "XY_Brickwork"), 4)
-        start = sum(f["g_purity_initial"] for f in final) / len(final) / mu
-        end = sum(f["val_g_purity"] for f in final) / len(final) / mu
+        by_data: dict[int, list[float]] = {}
+        for r, t in zip(group, known, strict=True):
+            by_data.setdefault(r.get("dataset", 0), []).append(t["accuracy"])
+            acc[(name, r.get("dataset", 0), r["cell"]["seed"])] = t["accuracy"]
+        spread = np.std([np.mean(v) for v in by_data.values()]) if len(by_data) > 1 else None
+        purity = "--"
+        if "g_purity_initial" in final[0]:
+            mu = uniform_prior_mean(final[0]["config"].get("ansatz", "XY_Brickwork"), 4)
+            start = sum(f["g_purity_initial"] for f in final) / len(final) / mu
+            end = sum(f["val_g_purity"] for f in final) / len(final) / mu
+            purity = f"{start:.2f} -> {end:.2f}"
         print(
             f"| {name} | {len(group)} "
             f"| {sum(f['train_loss'] for f in final) / len(final):.4f} "
             f"| {sum(t['accuracy'] for t in known) / len(known):.3f} "
-            f"| {start:.2f} -> {end:.2f} "
+            f"| {'--' if spread is None else f'{spread:.3f}'} "
+            f"| {purity} "
             f"| {_stat([s['spearman'] for s in series])} "
             f"| {_stat([s['pearson_diff'] for s in series])} "
             f"| {_stat([s['spearman_diff'] for s in series])} |"
+        )
+
+    deltas: dict[str, dict[int, list[float]]] = {}
+    for (name, dataset, seed), value in acc.items():
+        twin = (name.replace("preconditioner=mlp", "preconditioner=none"), dataset, seed)
+        if twin[0] != name and twin in acc:
+            deltas.setdefault(name, {}).setdefault(dataset, []).append(value - acc[twin])
+    if deltas:
+        print("\n| mlp cell | mlp - none, paired | per dataset | positive |")
+        print("| --- | --- | --- | --- |")
+    for name, by_data in deltas.items():
+        values = [v for vs in by_data.values() for v in vs]
+        per = " ".join(f"{np.mean(by_data[d]):+.3f}" for d in sorted(by_data))
+        print(
+            f"| {name} | {np.mean(values):+.3f} | {per} "
+            f"| {sum(v > 0 for v in values)}/{len(values)} |"
         )
 
 
@@ -292,12 +461,30 @@ def main() -> None:
     parser.add_argument("--opt", action="store_true", help="run the per-group learning-rate block")
     parser.add_argument("--full", action="store_true", help="run the full grid (lr_qfm=1e-2)")
     parser.add_argument("--report", action="store_true")
+    parser.add_argument("--generate", action="store_true", help="generate registry datasets 1-4")
+    parser.add_argument(
+        "--fluksio",
+        action="store_true",
+        help="full grid + GNN on every registry dataset, versioned, into results/datasets/",
+    )
     args = parser.parse_args()
 
-    if not DATA.exists():
+    if args.generate:
+        from fluksio.sdk.client import Client
+
+        generate(Client())
+        return
+    if args.fluksio:
+        args.out = args.out / "datasets"
+    elif not DATA.exists():
         raise SystemExit(f"{DATA} missing; export the pinned generate run first (s2 README)")
     args.out.mkdir(parents=True, exist_ok=True)
     if args.report:
+        report(args.out)
+        return
+    common = {"seeds": args.seeds, "jobs": args.jobs, "epochs": args.epochs, "out": args.out}
+    if args.fluksio:
+        run_fluksio(cells_datasets(), "full.json", **common)
         report(args.out)
         return
     if args.full:
@@ -306,7 +493,7 @@ def main() -> None:
         block, filename = cells_opt(), "opt.json"
     else:
         block, filename = cells(args.channels), "smoke.json"
-    run(block, filename, seeds=args.seeds, jobs=args.jobs, epochs=args.epochs, out=args.out)
+    run(block, filename, **common)
     report(args.out)
 
 

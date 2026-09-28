@@ -60,6 +60,7 @@ def export() -> None:
         )
         known = record["test_metrics"]["known"]
         base = {
+            "dataset": record.get("dataset", 0),
             "ansatz": cell["ansatz"],
             "dim_g": record["dla_report"]["dim_g"],
             "algebra": "floored" if record["dla_report"]["n_diag_words"] else "floor-free",
@@ -105,10 +106,11 @@ def _load() -> list[dict[str, str]]:
 
 
 def _runs(rows: list[dict[str, str]]) -> dict[tuple, list[dict[str, str]]]:
-    """Group rows by run (ansatz, preconditioner, seed)."""
+    """Group rows by run (dataset, ansatz, preconditioner, seed)."""
     runs: dict[tuple, list[dict[str, str]]] = {}
     for row in rows:
-        runs.setdefault((row["ansatz"], row["preconditioner"], row["seed"]), []).append(row)
+        key = (row.get("dataset", "0"), row["ansatz"], row["preconditioner"], row["seed"])
+        runs.setdefault(key, []).append(row)
     return runs
 
 
