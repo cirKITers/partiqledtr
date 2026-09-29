@@ -90,7 +90,7 @@ def export() -> None:
             rows.append(
                 {
                     **base,
-                    "epoch": t["epoch"] + 1,
+                    "epoch": int(t["epoch"]) + 1,
                     "g_purity_over_mu": f"{t['g_purity'] / mu:.5f}",
                     "val_loss": f"{t['val_loss']:.5f}",
                 }
