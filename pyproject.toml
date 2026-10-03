@@ -1,6 +1,6 @@
 [project]
 name = "partiqledtr"
-version = "0.1.0"
+version = "0.2.0"
 description = "Particle decay tree reconstruction with quantum Fourier models"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
