@@ -34,7 +34,7 @@ dev/            one folder per study, plus the engine script
 ├── s4-scaling/         the graph trichotomy at n = 6
 └── s5-trig-nodes/      the node update between message-passing blocks
                         each study has its own data/ results/ figures/ logs/
-docs/           the diagram above (architecture.d2 / .svg)
+docs/           the diagram below (architecture.d2 / .svg)
 tests/          run with `uv run pytest`
 ```
 
@@ -105,14 +105,18 @@ digest (for example, `--dataset_train sha256:...`) and `dataset_meta` inline.
 
 ## Architecture
 
-![the quantum model, end to end](docs/architecture.svg)
+<img src="docs/architecture.svg" alt="architecture of the quantum model" width="70%">
 
-The diagram shows only the quantum arm. The classical `gnn` and `mlp` arms use the same features with their own preconditioner and head.
+The diagram shows only the quantum arm at its defaults. 
+The classical `gnn` and `mlp` arms use the same features with their own preconditioner and head.
 
-The model uses 4-qubit QFMs as the *edge function* of a message-passing network.
-They share parameters across edges, making the model permutation-equivariant.
-The classical components are particle-local: an elementwise preconditioner, a parameter-free masked mean, and a per-node linear map. Cross-particle structure therefore comes from the quantum component.
-Readout uses per-qubit Pauli-Z measurements and a shared linear head, avoiding exponential readout size.
+The model uses 4-qubit QFMs as the *edge function* of a message-passing network (6 qubits with the three-angle `pair_polar_*` angle maps).
+They share parameters across edges, making the model permutation-equivariant. 
+Each of the two blocks runs `n_channels` independently initialised QFMs in parallel.
+The classical components are particle-local: optional whitening, an elementwise preconditioner, a parameter-free masked mean, and a per-node update (linear by default; `node_update` selects a SIREN or ELU MLP).
+Cross-particle structure therefore comes from the quantum component.
+Readout measures `<XX + YY>` on each coupling bond of the ansatz, an observable inside its DLA, and feeds a shared linear head, so readout size grows with the bond count rather than exponentially.
 
 The project is organized in three flows: `generate` simulates events, `train` consumes those artifacts for each sweep cell, and `characterize` records DLA certificates, encoding cells, and the sampler's shape ceiling without a dataset.
-Fluksio caches node results by input, making unchanged stages cheap to rerun. `fit` uses `cache=False` because its fingerprint covers only its own source, not the training loop it calls.
+Fluksio caches node results by input, making unchanged stages cheap to rerun.
+`fit` uses `cache=False` because its fingerprint covers only its own source, not the training loop it calls.
