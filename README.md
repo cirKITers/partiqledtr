@@ -4,8 +4,9 @@ This is a revived version of the initial attempt to tackle the particle **d**eca
 See the [corresponding section](#architecture) below for details concerning the current approach.
 The project builds upon the same foundation as the [BaumBauen](https://github.com/helmholtz-ai-energy/baumbauen) project.
 
-Technology:
-- [qml-essentials](https://github.com/cirKITers/qml-essentials): quantum Fourier models, simulated with its JAX backend, jaqsi
+Tech stack:
+- [qml-essentials](https://github.com/cirKITers/qml-essentials): quantum Fourier models
+- [jaqsi](https://github.com/cirKITers/jaqsi): simulator in JAX
 - [phasespace-jax](https://github.com/cirKITers/phasespace-jax): JAX port of phasespace for decay event generation
 - JAX: array computation and automatic differentiation
 - Flax: neural network modules
