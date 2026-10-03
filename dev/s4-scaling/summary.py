@@ -1,16 +1,9 @@
-"""The one-figure summary of the s4 grid, drawn the way s3's is.
+"""Build the s4 summary CSV and four-panel figure.
 
-Four panels over the three graph arms: (a) the g-purity trajectory, (b) the
-validation loss alongside it, (c) the per-epoch purity-loss coupling of the
-mlp runs, (d) known-topology accuracy, raw against the learned preconditioner.
-Arms are ordered by algebra size (cycle 60, ladder 510, odd-chord 1020), so
-panel (d) reads against the certificate range directly.
+Panels compare g-purity, validation loss, their association, and known-topology
+accuracy across the graph arms. ``--plot`` redraws from the existing CSV.
 
-The figure is drawn from ``results/summary.csv`` alone, so the plot can be
-restyled or rebuilt without touching the run records:
-
-    python dev/s4-scaling/summary.py          # rebuild csv, then figure
-    python dev/s4-scaling/summary.py --plot   # figure from existing csv
+Usage: ``python dev/s4-scaling/summary.py [--plot]``.
 """
 
 from __future__ import annotations

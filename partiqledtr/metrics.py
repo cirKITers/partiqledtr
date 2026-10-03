@@ -1,19 +1,8 @@
-"""LCAG evaluation metrics.
+"""Evaluate LCAG class predictions on ground-truth valid cells.
 
-All metrics take *predicted class indices*, not logits, so the argmax convention
-lives at the call site.  Masks are built from the ground truth only: a cell is
-scored iff its label is not an ignored class.  This follows baumbauen's
-definitions; partiqlegan's accuracy and Perfect-LCAG reach the same numbers only
-because they first overwrite every ignored prediction with its label.
-
-Everything here is numpy and runs at evaluation time only -- the valid-tree rate
-has to reconstruct a tree per sample, which is inherently sequential Python.
-
-Two ignore sets are used throughout:
-
-* ``IGNORE`` -- the padding/diagonal sentinel alone.
-* ``IGNORE_PRIMARY`` -- also drops class 0, giving a score over structural edges
-  only, excluding the trivially correct zero entries.
+Inputs are predicted class indices. ``IGNORE`` excludes padding and diagonal
+cells; ``IGNORE_PRIMARY`` also excludes class 0. Valid-tree metrics reconstruct
+one tree per event.
 """
 
 from __future__ import annotations
@@ -72,10 +61,7 @@ def masked_accuracy(
 def perfect_lcag_rate(
     predictions: np.ndarray, labels: np.ndarray, ignore: tuple[int, ...] = IGNORE
 ) -> float:
-    """Fraction of events whose every scored cell is predicted correctly.
-
-    The all-or-nothing metric of the reconstruction papers: an event counts only
-    if the complete LCAG matrix is right.
+    """Return the fraction of events with every scored LCAG cell correct.
 
     Args:
         predictions: Integer class indices, shape ``(B, L, L)``.
@@ -153,25 +139,11 @@ def valid_tree_rate(
     ignore_disconnected: bool = True,
     strict: bool = False,
 ) -> float:
-    """Fraction of predicted LCAGs that reconstruct into a valid tree.
+    """Return the fraction of predictions reconstructing to a tree.
 
-    The prediction need not be *correct* -- only realisable. Reconstruction is the
-    definition of validity, so this reuses
-    :func:`partiqledtr.data.lcag.lcag_to_adjacency`.
-
-    The default is an **optimistic** measure and has to be reported as one. It is
-    permissive in two separate ways: reconstruction is greedy, so a matrix
-    consistent with no single tree can still reduce to one --
-    on random symmetric matrices roughly 70% of the accepted ones do not reproduce
-    their own input LCAG -- and dropping the leaves a prediction calls
-    disconnected means a prediction that keeps only a single pair scores a valid
-    tree, which nothing in the loss discourages because class 0 carries weight 0.
-    The lenient definition is kept as the default because it is the one the
-    reconstruction papers used and the numbers have to stay comparable.
-
-    ``strict=True`` closes both holes: every scored leaf must survive, and the
-    reconstructed tree must re-derive the very matrix it came from. Report it as
-    the primary number and the lenient one for comparability.
+    The default greedy criterion is permissive: it can drop disconnected leaves
+    and accept a matrix that the reconstructed tree cannot reproduce.
+    ``strict=True`` requires every scored leaf and an exact LCAG round trip.
 
     Args:
         predictions: Integer class indices, shape ``(B, L, L)``.

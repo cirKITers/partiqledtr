@@ -1,53 +1,9 @@
-r"""Ansatz arms of the edge QFM, and the bond structure that motivates them.
+"""Define XY ansatz arms and their particle-swap bond symmetries.
 
-The edge QFM spends two qubits per particle, so at ``n = 4`` qubits 0, 1 carry
-particle A's angles and 2, 3 carry particle B's, and the swap of the two
-endpoints acts on the wires as the permutation :math:`\pi = (0\,2)(1\,3)`.  An
-ansatz is *partition-respecting* when its bond set is invariant under
-:math:`\pi`; the edge function is then symmetric in its two endpoints by
-construction rather than by symmetrising the output afterwards.
-
-``XY_Brickwork``, the original arm, is not: its bonds ``(0,1), (1,2), (2,3)``
-put two of three inside a particle and join ``alpha_A`` to ``phi_B`` with the
-third.  Replacing the odd brick layer with the span-2 bonds fixes exactly that,
-and the qml-essentials topologies spell both out -- ``Topology.bricks(offset=0)``
-is ``(0,1), (2,3)`` and ``Topology.stairs(span=2)`` is ``(0,2), (1,3)``.
-
-Measured at ``n = 4`` (:func:`partiqledtr.analysis.dla_check`):
-
-    ansatz          bonds                    dim_g/255  d_Z  pi-invariant
-    XY_Brickwork    01, 12, 23                      12    0  no
-    XY_Ring         01, 23, 02, 13                  24    0  yes
-    XY_AllPairs     all six                         60    6  yes
-    Circuit_19      CRX ring                       255   15  --
-
-``XY_Ring`` is the 4-cycle ``0-1-3-2-0``.  Even cycles are bipartite, which is
-the unflattening manuscript's graph criterion for :math:`d_Z = 0`, so it is
-partition-respecting *and* still input-distribution sensitive: at ``n = 4`` the
-two criteria do not pull apart.  ``XY_AllPairs`` adds the triangles: an odd
-cycle rebuilds the diagonal sector, giving a floored control that respects the
-partition as well.
-
-Bonds alone do not give equivariance, though: :math:`\pi` maps ``(0,1)`` to
-``(2,3)``, so the two gates of that orbit must carry the *same* angle, which is
-what ``Block(shared=True)`` ties.  The span-2 gates map to themselves and need
-no tying.
-
-The ``n = 6`` graph arms use three qubits per particle, where the swap is
-:math:`\pi = (0\,3)(1\,4)(2\,5)` and all three share the intra-particle chains
-``(0,1), (1,2), (3,4), (4,5)``.  Measured at ``n = 6``:
-
-    ansatz       extra bonds   dim_g/4095  d_Z  pi-invariant
-    XY_Cycle     03, 25                60    0  yes
-    XY_Ladder    03, 14, 25           510    0  yes
-    XY_OddChord  03, 25, 02, 35      1020   30  yes
-
-The cycle is even, hence bipartite, hence floor-free at a polynomial closure.
-The ladder's middle rung gives the bipartite graph a degree-3 vertex, which is
-the unflattening manuscript's encoded-universality criterion -- the hard
-floor-free arm.  The chords close odd triangles inside each particle and the
-floor returns: the floored hard control.  One rung toggles hardness, the chords
-toggle the floor.
+At four qubits, particles occupy wires (0, 1) and (2, 3); at six qubits they
+occupy (0, 1, 2) and (3, 4, 5). A swap-symmetric bond set needs shared
+parameters on bonds exchanged by that swap. Even-cycle and ladder arms have
+no diagonal-word purity floor; odd-chord arms provide floored controls.
 """
 
 from qml_essentials.ansaetze import Ansaetze, Block, DeclarativeCircuit, Gates
@@ -257,12 +213,9 @@ def bonds(ansatz: str, n_qubits: int) -> set[frozenset[int]]:
 
 
 def swap_invariant(ansatz: str, n_qubits: int) -> bool:
-    r"""Whether an ansatz's bond set survives the endpoint swap.
+    """Test whether an ansatz's bonds survive swapping the two particles.
 
-    With two qubits per particle the swap of an edge's two endpoints acts on the
-    wires as :math:`\pi = (0\,2)(1\,3)` at ``n = 4``, and generally as the shift by
-    half the register.  A ``True`` here is what makes the edge function symmetric
-    by construction rather than by symmetrising the output afterwards.
+    The swap shifts wires by half the register.
 
     Args:
         ansatz: Ansatz name.

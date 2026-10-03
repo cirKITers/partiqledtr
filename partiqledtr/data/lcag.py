@@ -1,35 +1,9 @@
-"""LCAG construction, leaf shuffling and tree reconstruction.
+"""Build LCAG matrices and reconstruct decay-tree adjacency.
 
-The lowest-common-ancestor generation (LCAG) matrix of a decay tree is the symmetric
-``(L, L)`` matrix over the tree's final-state particles whose entry ``(i, j)`` counts the
-generations from the (normalised) leaf plane up to the lowest common ancestor of leaves
-``i`` and ``j``; the diagonal is 0.
-
-:func:`topology_to_lcag` reproduces baumbauen's ``decay2lca``
-(``reference/baumbauen/src/baumbauen/utils/decay2lca.py``). That implementation runs three
-phases: collect parents and raw generations, *pull down* every node so all leaves sit on
-the deepest leaf's level and every interior node sits one level above its highest child,
-then read off ``level(leaf) - level(lca)``. The pull-down is exactly
-``level(v) = depth - height(v)`` with ``height(leaf) = 0`` and
-``height(v) = 1 + max height(child)``, so with all leaves at ``level = depth`` the matrix
-entry collapses to ``height(lca)``. This module computes the heights directly; the result
-is identical (verified against the reference fixtures in ``tests/test_lcag.py``) and skips
-the reference's repeated queue passes. Note this also explains why the reference may leave
-the root's generation at its raw value 0: the root's height always equals the raw depth.
-
-:func:`lcag_to_adjacency` is a compact iterative rewrite of baumbauen's recursive
-``lca2adjacency``. Two deliberate deviations:
-
-* the emitted node order is leaves first, in the order of the input matrix, then the
-  reconstructed internal nodes breadth-first from the root (so row ``L`` is the root).
-  baumbauen renumbers everything breadth-first and thereby loses the correspondence
-  between adjacency rows and LCAG rows,
-* two leaves that already share an ancestor below the level their entry claims raise
-  immediately. The reference detects this only indirectly, through an ``IndexError``
-  during matrix filling.
-
-baumbauen's ``_pull_down`` is not ported: it only rewrites ``Node.level``, which feeds its
-level-indexed output ordering, and never changes the reconstructed parent/child links.
+An LCAG entry is the height of the lowest common ancestor of two leaves;
+the diagonal is zero. Reconstruction keeps input leaves in their original
+order, places the root at row ``L``, and rejects inconsistent ancestry. Matrix
+construction reproduces baumbauen's ``decay2lca`` using node heights.
 """
 
 import numpy as np
@@ -136,11 +110,9 @@ def shuffle_leaves(
 
 
 def lcag_to_adjacency(lcag: np.ndarray) -> np.ndarray:
-    """Reconstruct the decay tree encoded by an LCAG matrix.
+    """Reconstruct a decay tree from an LCAG matrix.
 
-    Distinct off-diagonal values are ranked, so the matrix need not use consecutive
-    levels; leaves sit at level 1 and the smallest value becomes level 2. The diagonal is
-    ignored (predicted matrices carry the ``-1`` ignore label there).
+    Rank distinct off-diagonal values as ancestor levels; ignore the diagonal.
 
     Args:
         lcag: ``(L, L)`` LCAG matrix.
@@ -196,16 +168,10 @@ def lcag_to_adjacency(lcag: np.ndarray) -> np.ndarray:
 
 
 def lcag_roundtrip(lcag: np.ndarray) -> np.ndarray:
-    """Return the LCAG implied by the tree reconstructed from ``lcag``.
+    """Reconstruct a tree and return the LCAG it implies.
 
-    :func:`lcag_to_adjacency` is greedy, so a matrix consistent with no single tree
-    can still reduce to one. Re-deriving the LCAG from that tree and comparing is
-    the strict test the greedy one is not: it accepts a matrix only if the tree it
-    produces would produce the matrix back.
-
-    Entries come back in the input's own value vocabulary rather than as
-    consecutive generations, because the reconstruction ranks distinct values and a
-    gap in them is a cosmetic property, not a structural inconsistency.
+    This detects matrices accepted by greedy reconstruction that do not describe
+    the resulting tree. Preserve the input's level values, including gaps.
 
     Args:
         lcag: ``(L, L)`` LCAG matrix; the diagonal is ignored.
@@ -322,16 +288,11 @@ def _is_tree(adjacency: np.ndarray) -> bool:
 
 
 def is_valid_lcag(lcag: np.ndarray) -> bool:
-    """Report whether an LCAG matrix reconstructs to a tree.
+    """Test whether an LCAG matrix reconstructs to a tree.
 
-    This is baumbauen's valid-tree criterion, and it is weaker than "is the LCAG of the
-    reconstructed tree": the reconstruction is greedy, so a matrix whose entries are not
-    consistent with a single tree can still reduce to one. Compare the reconstruction's
-    own LCAG if the stronger property is needed.
-
-    Only :class:`InvalidLCAGError` is caught: anything else (a ragged input, a
-    non-numeric dtype) is a bug in the caller and must not be reported as a merely
-    invalid matrix.
+    Greedy reconstruction can accept an inconsistent matrix; use
+    :func:`lcag_roundtrip` for the stricter check. Only :class:`InvalidLCAGError`
+    is treated as an invalid matrix.
 
     Args:
         lcag: ``(L, L)`` LCAG matrix.

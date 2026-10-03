@@ -1,31 +1,9 @@
-"""The three expressivity arms, run in process.
+"""Run the s2 depth, encoding-weight, and ansatz experiments.
 
-The nodes are plain functions, so an arm needs no engine: this calls
-:func:`partiqledtr.train.train_model` and :func:`partiqledtr.train.evaluate_split`
-directly on dataset splits read from disk. The Fluksio flows in
-:mod:`partiqledtr.pipeline` are unchanged and still describe the same work, so the
-study is re-runnable through the engine whenever that is wanted -- this driver is
-the sandbox path, not a fork of it.
+Each arm varies one axis from :data:`BASE`. Cells can run in process or
+through Fluksio; ``--report`` summarises completed seeds.
 
-Arms, deliberately independent -- each holds everything else at the baseline
-configuration (:data:`BASE`) so its axis is the only thing that moves:
-
-* **A, depth.** ``n_layers`` 2, 4, 8, 16 on the baseline. The per-feature
-  spectrum is ``2L + 1``, so this is the cheapest test of "is expressivity the
-  bottleneck" and it changes nothing else. Run last: deep circuits are unrolled,
-  so their *compile* cost dominates even though the step cost is flat in depth.
-* **B, encoding weights.** ``enc_weights`` x ``enc_reupload``, crossed with the raw
-  and learned preconditioners, plus the clustered ``legacy`` encoding where the
-  manuscript's jitter amplification has room to act.
-* **C, ansatz.** The partition-respecting arms against the baseline's
-  ``XY_Brickwork``, crossed with the preconditioner.
-
-Every cell runs at ``--seeds`` seeds, because the differences between cells
-are small enough that a single seed says nothing.
-
-    python dev/s2-expressivity/run.py --arm c                 # in process
-    python dev/s2-expressivity/run.py --arm c --fluksio <run>  # through the engine
-    python dev/s2-expressivity/run.py --report
+Usage: ``python dev/s2-expressivity/run.py --arm c [--fluksio <run>]``.
 """
 
 from __future__ import annotations
@@ -288,14 +266,10 @@ def _mean(values: list[Any], places: int = 3) -> str:
 
 
 def report(paths: list[Path]) -> None:
-    """Print one markdown table per arm, averaged over seeds.
+    """Print seed-averaged tables for each arm on known topologies.
 
-    Read the **known** subset: the test split is 94% unknown topologies by
-    construction, so an overall number is dominated by a subset nothing solves.
-    Purity is start -> end, because the purity observable is a trajectory rather
-    than a level, and it is reported **in units of that arm's own uniform-prior
-    mean** -- `mu_n` is 0.8125 for `XY_Brickwork`, 1.25 for `XY_Ring`
-    and 15 for `Circuit_19`, so raw purities are not comparable across arm C.
+    Report purity relative to each arm's uniform-prior mean so ansaetze with
+    different scales remain comparable.
     """
     from partiqledtr.analysis import uniform_prior_mean
 

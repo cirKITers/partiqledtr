@@ -1,22 +1,9 @@
-"""Decay topology sampling.
+"""Sample mass-constrained decay topologies.
 
-A topology is a plain nested dict ``{"name": str, "mass": float, "children": list}``;
-a final-state particle (FSP) is a node with an empty child list. Particles are identified
-by their mass alone, hence the intermediate (ISP) and final-state mass pools must be
-disjoint -- the invariant that makes :func:`canonical_form` a complete isomorphism test.
-Masses are the ones partiqlegan ships in ``conf/base/parameters/data_generation.yml``.
-
-The mass-budget walk follows partiqlegan's ``gen_structure_from_parameters``
-(``reference/partiqlegan/src/partiqleDTR/pipelines/data_generation/nodes.py``) with three
-deviations:
-
-* the available mass is reduced by the mass of the child just placed; the reference
-  subtracts the *running total* each iteration and therefore over-counts,
-* a reserve of one minimal FSP mass on the first child guarantees every internal node
-  gets at least two children, instead of the reference's early ``break`` that can leave a
-  node with one or zero children,
-* the requested FSP count is reached by rejecting whole draws instead of the reference's
-  offline seed scan, so the FSP count is controllable.
+Topologies are nested dicts with ``name``, ``mass``, and ``children`` fields.
+Disjoint intermediate- and final-state mass pools make canonical forms an
+isomorphism test. Sampling enforces at least two children per internal node
+and the requested final-state particle count.
 """
 
 from collections.abc import Callable
@@ -57,13 +44,10 @@ def sample_topology(
     isp_weight: float = 1.0,
     max_tries: int = 10_000,
 ) -> dict:
-    """Draw one topology with exactly ``n_fsps`` final-state particles.
+    """Draw a mass-feasible topology with exactly ``n_fsps`` leaves.
 
-    A breadth-first mass-budget walk expands the root: every node's children are drawn
-    from the ISP or FSP pool such that their masses sum to strictly less than the parent
-    mass (phasespace rejects anything else), children at level ``max_depth`` are forced to
-    be final-state, and each internal node receives at least two children. Draws whose
-    leaf count differs from ``n_fsps`` are rejected and repeated.
+    Expand nodes breadth-first, require at least two children per internal node,
+    and reject draws with the wrong leaf count.
 
     Args:
         rng: Random generator; the only source of randomness.
@@ -151,13 +135,9 @@ def canonical_form(topology: dict) -> str:
 
 
 def shape_form(topology: dict) -> str:
-    """Return the canonical form of a topology's *unlabelled* shape.
+    """Return the canonical form of a topology's unlabelled shape.
 
-    :func:`canonical_form` keys on masses, but the LCAG label depends only on the
-    tree shape, and masses are not model inputs. Two topologies with different
-    masses and the same shape therefore carry the *same* label matrix, so deduping
-    on the mass-labelled form alone would let a group-C "unseen" topology repeat a
-    label the model already trained on.
+    Mass-labelled trees with the same shape have the same structural LCAG labels.
 
     Args:
         topology: The topology to encode.
@@ -181,27 +161,10 @@ def sample_topologies(
     isp_weight: float = 1.0,
     is_viable: Callable[[dict], bool] | None = None,
 ) -> list[list[dict]]:
-    """Draw pairwise non-isomorphic topologies, grouped for the known/unknown split.
+    """Draw distinct unlabelled tree shapes for known and unknown groups.
 
-    FSP counts cycle through ``[min_fsps, max_fsps]`` so every group covers the range.
-    The groups feed the known/unknown generalisation probe (group A to
-    train/val/test, B to val/test, C to test only).
-
-    Topologies are pairwise non-isomorphic **as unlabelled shapes**, not merely as
-    mass-labelled trees. That is what the generalisation probe needs: an
-    "unseen" topology whose shape the model already trained on would carry a label
-    matrix it has seen, and the probe would silently measure memorisation.
-
-    Groups are dealt round-robin from the draw sorted by leaf count, so their
-    multiplicity profiles match as closely as the counts allow: the probe has to
-    measure familiarity with a topology, not the size of one. ``per_group``
-    must still be at least the FSP span, or a group cannot cover the range at all.
-
-    The number of distinct shapes at a *small* leaf count is genuinely small --
-    with ``max_depth=4`` there are only a handful with three leaves -- so a slot
-    whose scheduled count is exhausted falls through to the next count rather
-    than failing. That is the constraint the mass-labelled dedup was hiding: it
-    kept drawing "new" topologies that carried labels already in the set.
+    Cycle through the requested leaf counts and distribute shapes round-robin
+    across groups. Exhausted counts fall through to the next available count.
 
     Args:
         rng: Random generator; the only source of randomness.

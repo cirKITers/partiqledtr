@@ -1,16 +1,8 @@
-"""Dataset assembly and the generation flow's nodes.
+"""Assemble LCAG datasets and expose the generation flow's nodes.
 
-The heavy lifting lives in :func:`assemble_dataset` and :func:`dataset_statistics`,
-which are plain functions returning arrays: Fluksio's ``save_artifact`` raises
-outside a running node, so keeping the pure part separate is what makes the
-pipeline testable without an engine.
-
-Splits follow the known/unknown topology scheme of baumbauen: with three
-topology groups, group A's events are spread over train, validation and test,
-group B's over validation and test, and group C's go to test alone. Evaluating on
-the test split therefore measures generalisation to unseen topologies as well as
-to unseen events, and ``topology_id`` together with ``meta["topology_group"]``
-tells the two apart.
+Group A topologies occur in every split, group B in validation and test, and
+group C only in test. ``topology_id`` and ``meta["topology_group"]`` distinguish
+known from unseen test topologies.
 """
 
 from __future__ import annotations
@@ -72,11 +64,10 @@ def assemble_dataset(
     max_draws: int = 40_000_000,
     probe_margin: float = 2.0,
 ) -> tuple[dict[str, dict[str, np.ndarray]], dict[str, Any]]:
-    """Sample topologies, generate events and assemble the three dataset splits.
+    """Generate train, validation, and test splits from sampled topologies.
 
-    Both feature encodings are stored side by side so the ablation arms never have
-    to re-run phase-space generation. Normalisation scales are fitted on the
-    training split alone and applied to all three.
+    Store every feature encoding on the same events. Fit normalisation scales on
+    the training split and apply them to all splits.
 
     Args:
         seed: Master seed; every random stream is derived from it.
@@ -335,12 +326,10 @@ def build_dataset(
 def dataset_statistics(
     splits: dict[str, dict[str, np.ndarray]], meta: dict[str, Any]
 ) -> tuple[dict[str, Any], dict[str, bytes]]:
-    """Summarise the dataset and render the verification figures.
+    """Summarise the dataset and render validation figures.
 
-    The angular marginals are the point of the exercise: whether kinematic
-    features cluster the encoding angles decides whether the data reach the regime
-    where the unflattening theory makes falsifiable predictions. Circular variance
-    near 0 means clustered, near 1 means spread.
+    Circular variance near zero indicates clustered angles; near one indicates
+    spread angles.
 
     Args:
         splits: Split arrays from :func:`assemble_dataset`.
@@ -473,13 +462,9 @@ def shape_ceiling(
     n_groups: int = 3,
     ceiling_seed: int = 0,
 ) -> dict[str, Any]:
-    """Record how many distinct tree shapes the sampler can actually supply.
+    """Measure the sampler's supply of distinct unlabelled tree shapes.
 
-    The known/unknown probe can only be as good as the number of *distinct*
-    unlabelled shapes a depth admits, and distinct shapes are scarce at small leaf
-    counts. This asks the sampler for a given count per group and records where it
-    runs out, which turns that ceiling into a number. No phase-space generation:
-    shapes only.
+    Probe topology counts without generating phase-space events.
 
     Args:
         min_fsps: Smallest final-state particle count.

@@ -1,34 +1,9 @@
-"""QFM constellation: shared-weight quantum Fourier models as the edge function.
+"""Use shared quantum Fourier edge models for LCAG prediction.
 
-Many small quantum Fourier models (4 qubits each) sit inside a message-passing
-network, one evaluation per directed edge, sharing one parameter set across every
-edge. Sharing is what makes the model permutation-equivariant; staying small is
-what keeps the analytic simulation cheap and the per-QFM spectrum tractable.
-
-Every classical part is deliberately particle-local -- an elementwise preconditioner, a
-parameter-free masked mean, a per-node linear map -- so cross-particle structure
-can only come from the quantum edge function.
-
-Encoding contract, verified by measurement rather than assumed: re-uploaded ``RY``
-gates on one wire add, so a layer rotates qubit ``q`` by
-``theta_q = sum_f W[q, f] u_f`` for the effective weight matrix ``W`` of
-:func:`encoding_matrix`, and with zero ansatz parameters the bond readout is
-exactly ``sin(n_layers * theta_j) sin(n_layers * theta_k)`` (``<Y_q> = 0`` on the
-RY product state, so the ``YY`` half vanishes there). The baseline encoding
-(``hamming`` weights, ``diagonal`` mask) has ``W = I`` -- feature ``f`` on qubit
-``f`` alone, weight one. The encoding-weight axis varies ``W`` and nothing else:
-exponential weights and a widened (``cyclic``) mask, which is what the unflattening
-manuscript's spectral preconditioning needs and what enlarges the per-feature
-spectrum from 5 to 17 frequencies.
-
-The state the *product-state* g-purity describes is ``prod_q RY(theta_q)|0>``
-entering the first trainable block -- the encoded angle distribution, not the
-trained circuit, and not ``L theta``, since later encoding layers act on
-parameter-dependent entangled states rather than product states.
-:meth:`QFMConstellation.g_purity` reports that; :meth:`QFMConstellation.g_purity_exact`
-reports the same quantity for the state the circuit actually prepares. Both are
-streamed, because they answer different questions and only agree in the
-clustered limit.
+A small QFM evaluates each directed edge with shared parameters. Classical
+updates stay particle-local. Encoding weights and re-upload masks determine
+effective angles; product-state purity measures the state entering the first
+trainable block, while exact purity measures the prepared circuit state.
 """
 
 from __future__ import annotations
@@ -97,12 +72,10 @@ ENC_WEIGHTS: dict[str, Callable[[int], np.ndarray]] = {
 
 
 def reupload_mask(reupload: str, n_layers: int, n_qubits: int = N_QUBITS) -> np.ndarray:
-    """Return the ``(n_layers, n_qubits, n_features)`` re-upload mask of an arm.
+    """Return the encoding mask for each layer, qubit, and feature.
 
-    ``"diagonal"`` sends feature ``f`` to qubit ``f`` alone, which is the baseline
-    encoding.  ``"cyclic"`` also sends it to qubit ``f - 1``, so every feature
-    reaches two qubits -- the widening that turns per-qubit weights into a
-    per-*feature* weight vector.
+    ``diagonal`` maps each feature to its matching qubit; ``cyclic`` also maps it
+    to the preceding qubit.
 
     Args:
         reupload: One of :data:`ENC_REUPLOAD`.
@@ -128,22 +101,10 @@ def reupload_mask(reupload: str, n_layers: int, n_qubits: int = N_QUBITS) -> np.
 def encoding_matrix(
     weights: str = "hamming", reupload: str = "diagonal", n_qubits: int = N_QUBITS
 ) -> np.ndarray:
-    r"""Return the effective encoding weight matrix ``W`` of an arm.
+    """Return the effective encoding matrix ``W``.
 
-    One layer of the encoding rotates qubit ``q`` by
-    :math:`\theta_q = \sum_f W_{qf} u_f`, since re-uploaded ``RY`` gates on the
-    same wire add.  ``W`` is the re-upload mask scaled row-wise by the strategy's
-    per-qubit weight, and it is the whole of what the encoding-weight axis varies:
-    the state stays an ``RY`` product state, so every purity closed form applies
-    unchanged with :math:`\theta` in place of :math:`u`.
-
-    At ``n_qubits = 4``, dissociation -- no
-    :math:`\epsilon \in \{-1,0,1\}^4 \setminus 0` with :math:`W^\top \epsilon = 0`
-    -- needs both a widened mask and unequal weights, so ``hamming-cyclic`` mixes
-    the features without preconditioning them and is the control that says so.
-    Among the dissociated cells only ``ternary_pair`` is also invariant under the
-    endpoint swap, which is what lets it compose with a partition-respecting
-    ansatz.
+    One layer rotates qubit ``q`` by ``sum_f W[q, f] * u[f]``. The mask sets feature
+    placement and the weight strategy scales its rows.
 
     Args:
         weights: One of :data:`ENC_WEIGHTS`.
@@ -162,14 +123,9 @@ def encoding_matrix(
 
 
 def encoding_spectrum(matrix: np.ndarray, feature: int, n_layers: int) -> np.ndarray:
-    r"""Return the frequencies one feature reaches through an encoding matrix.
+    """Return each feature's reachable frequencies under ``W``.
 
-    Feature ``f`` enters qubit ``q`` with weight ``W[q, f]``, once per layer, so
-    its reachable comb is the Minkowski sum over qubits of
-    ``{k W[q,f] : |k| <= n_layers}``.  ``Encoding.get_spectrum`` computes the same
-    thing from a strategy plus a mask; this reads it off the weight matrix, which
-    is what the circuit actually applies: the weights live in ``enc_params``, not
-    in the strategy.
+    Combine the per-qubit frequency sets across the re-uploading layers.
 
     Args:
         matrix: ``(n_qubits, n_features)`` weights from :func:`encoding_matrix`.
@@ -204,16 +160,10 @@ def readout_bonds(ansatz: str, n_qubits: int = N_QUBITS) -> tuple[tuple[int, int
 
 
 def readout_observables(ansatz: str, n_qubits: int = N_QUBITS) -> list[jaqsi.Operation]:
-    """The in-algebra readout: ``X_j X_k`` and ``Y_j Y_k`` per coupling bond.
+    """Return interleaved ``XX`` and ``YY`` observables for coupling bonds.
 
-    The unflattening variance law ``Var = P_g(rho) P_g(O) / dim g`` needs the
-    observable inside the arm's dynamical Lie algebra; single-qubit ``Z`` is in
-    no XY arm's algebra, so a per-qubit ``Z`` readout has ``P_g(O) = 0`` and no
-    channel from the encoded state to the loss.
-    The bond words are the arm's own generators, so they are in-algebra by
-    construction -- asserted per arm in the tests. The two strings of a bond are
-    interleaved ``[XX_b, YY_b, ...]`` and summed to ``<XX_b> + <YY_b>`` by the
-    consumer, the manuscript's own readout convention (``exp_latent_drift``).
+    These bond generators lie in the ansatz's DLA. Consumers sum each bond's
+    ``XX`` and ``YY`` expectations.
 
     Args:
         ansatz: One of :data:`ANSAETZE`.
@@ -287,29 +237,10 @@ def make_qfm(
 
 
 def pair_polar(p4: ArrayLike) -> jax.Array:
-    """Map four-vectors to the two pair-polar angles the QFMs encode.
+    """Map ``(px, py)`` and ``(pz, E)`` to pair-polar angles.
 
-    Coordinate pairs become polar angles, ``(px, py) -> phi`` and ``(pz, E) ->
-    alpha``. This is the unflattening paper's ``polar_angles`` map, which is what
-    lets the fixed-whitening arm be that paper's construction verbatim. The pair
-    radii are dropped, so momentum and energy magnitudes do not enter the quantum
-    path.
-
-    The two angles do **not** cover the circle equally, and the asymmetry is
-    physical rather than incidental:
-
-    * ``phi`` is a genuine azimuth and covers ``[0, 2 pi)``;
-    * ``alpha`` cannot leave ``(0, pi)`` at all, because ``E > 0`` puts the pair
-      in the upper half-plane, and ``E >= |p| >= |pz|`` confines it further to
-      about ``[pi/4, 3 pi/4]`` -- a quarter of the circle, widened only slightly
-      by momentum and energy carrying different normalisation scales. The
-      ``jnp.mod`` is therefore a no-op on the ``alpha`` components.
-
-    That concentration around ``pi/2`` is a kinematic bound, not a softness
-    effect: soft and hard particles sit at the same place. It matters for the
-    preconditioner study, because ``pi/2`` is the *favourable* RY point, so this
-    encoding starts well away from the clustered regime -- see
-    :func:`legacy_angles` for the arm that does cluster.
+    The first angle spans a circle. Positive energy and ``E >= |pz|`` constrain
+    the second near pi/2; pair radii are discarded.
 
     Args:
         p4: ``(..., 4)`` four-vectors laid out ``[px, py, pz, E]``; anything
@@ -328,20 +259,10 @@ def pair_polar(p4: ArrayLike) -> jax.Array:
 
 
 def legacy_angles(p4: ArrayLike) -> jax.Array:
-    """Map four-vectors to partiqlegan's product encoding angles.
+    """Map four-vectors to the clustered legacy product angles.
 
-    The prior work encoded each particle on one qubit as ``RX(px E pi)``,
-    ``RY(py E pi)``, ``RZ(pz E pi)`` with momenta scaled into ``[-1, 1]`` and
-    energy into ``[0, 1]``. Our edge QFM spends two qubits per particle, so this
-    keeps two of those three angles -- the ``RX`` and ``RZ`` ones, ``(px E pi,
-    pz E pi)`` -- and drops the ``py`` one.
-
-    It exists as a deliberately *clustered* input arm.
-    Both factors live in the unit interval, so their product concentrates near
-    zero, which is the collapsed point of the RY encoding and the regime where
-    the unflattening rescue prediction is falsifiable. Feed it the ``"legacy"``
-    encoding, whose normalisation is max-based precisely so the ``[-1, 1]``
-    premise of that argument holds.
+    Use ``(px * E * pi, pz * E * pi)`` after ``legacy`` max scaling. The
+    resulting values concentrate near zero.
 
     Args:
         p4: ``(..., 4)`` four-vectors laid out ``[px, py, pz, E]``, normalised by
@@ -444,18 +365,11 @@ NODE_UPDATES = ("linear", "siren", "elu")
 
 
 class NodeMLP(nnx.Module):
-    """Two-layer node update with a *linear* output, sine- or ELU-activated.
+    """Apply a sine or ELU hidden layer with a linear angle output.
 
-    The trig-interface arm: the constellation's node update is otherwise a bare
-    linear map, so the whole quantum arm is trig-polynomial -> linear ->
-    trig-polynomial -> linear, with no classical nonlinear capacity at all.
-    ``"siren"`` applies ``sin(omega_0 (W x + b))`` with the SIREN first-layer
-    initialisation ``W ~ U(-1/n_in, 1/n_in)`` and ``omega_0 = 30`` (Sitzmann et
-    al., arXiv:2006.09661) -- the scale discipline that keeps post-sine
-    activations distributed instead of collapsing ``sin`` to its linear regime.
-    ``"elu"`` is the matched-parameter control that separates "a nonlinearity
-    pays" from "the trigonometric one pays". The output layer stays linear in
-    both, because the consumer re-encodes it as angles.
+    The sine variant uses SIREN first-layer initialisation (Sitzmann et al.,
+    arXiv:2006.09661) and ``omega_0 = 30``; the ELU variant has the same
+    parameter count.
 
     Args:
         n_in: Size of the trailing input axis.
@@ -494,35 +408,12 @@ class NodeMLP(nnx.Module):
 
 
 class QFMConstellation(nnx.Module):
-    """Two message-passing blocks whose edge function is a shared-weight QFM.
+    """Predict LCAG logits with two shared-parameter quantum edge blocks.
 
-    Shapes, with ``B`` events, ``L`` padded particles, ``C`` classes, ``nb`` the
-    arm's bond count (:func:`readout_bonds`), ``A = n_qubits // 2`` the angles
-    per particle (2 at ``n_qubits = 4``, 3 at ``n_qubits = 6``) and ``K``
-    the channel count (``n_channels``, default 1 -- the node-state widening:
-    ``K`` independently initialised QFMs per block, so the inter-block node state
-    is ``A * K`` numbers rather than ``A``)::
-
-        p4    (B, L, 4)        four-vectors
-        ang   (B, L, A)        angle-map output, optionally whitened
-        a     (B, L, A)        preconditioner (identity or elementwise residual MLP)
-        u1    (B, L, L, 2A)    concat(a_i, a_j) -> folded to (B*L*L, 2A) per channel
-        e1    (B, L, L, K*nb)  <XX_b> + <YY_b> per coupling bond and channel
-        m     (B, L, K*nb)     masked mean over real neighbours
-        h     (B, L, A*K)      [a ; m] @ w_node, channel c's angles at h[..., A*c:A*(c+1)]
-        e2    (B, L, L, K*nb)  second QFM block, its own parameters per channel
-        out   (B, L, L, C)     symmetrised linear readout
-
-    The QFM parameters live here as :class:`flax.nnx.Param` leaves and reach the
-    circuit through :meth:`~qml_essentials.model.Model.apply`, the functional call
-    path that writes no model state -- so the whole forward pass is safe under an
-    outer ``jax.jit``.
-
-    Only the ansatz parameters train. The encoding weights are fixed by the arm
-    (``enc_weights``, ``enc_reupload``), i.e. this is a fixed-frequency model whose
-    spectrum is set by the encoding alone; making them trainable is a separate
-    axis and a separate hazard (Fourier locking), so it is deliberately not
-    folded in here.
+    Each block uses ``n_channels`` independent QFMs per edge. A masked neighbour
+    mean feeds the particle-local node update between blocks; a symmetric linear
+    head produces the logits. QFM ansatz parameters train while encoding weights
+    stay fixed. QFM calls are functional so the forward pass supports ``jax.jit``.
 
     Args:
         n_classes: Number of LCAG classes ``C``.
@@ -747,22 +638,10 @@ class QFMConstellation(nnx.Module):
         return self.edge_angles(x, mask) @ self.enc_matrix.T
 
     def g_purity(self, x: jax.Array, mask: jax.Array) -> jax.Array:
-        """Mean closed-form g-purity of the angle distribution this arm encodes.
+        """Measure mean product-state g-purity at the first encoding layer.
 
-        The preconditioner study's observable. The argument is the encoded angle
-        ``theta = W u`` of a single layer, which makes this the g-purity of the
-        product state ``prod_q RY(theta_q)|0>`` entering the first trainable block --
-        the scope the unflattening closed forms claim under re-uploading, and the
-        same convention the whitening acceptance test uses. It is a property of
-        *data plus encoding*, not of the trained circuit; for that, see
-        :meth:`g_purity_exact`. Costs ``O(n)`` per edge, so it is cheap enough to
-        track every epoch.
-
-        Read it against :func:`partiqledtr.analysis.uniform_prior_mean` for the same
-        arm: on a floor-free arm (``XY_Brickwork``, ``XY_Ring``) the theory predicts
-        a collapse on clustered inputs and a rise over training when a preconditioner
-        rescues it, on a floored one (``XY_AllPairs``) indifference, and on
-        ``Circuit_19``, whose algebra is all of ``su(2**n)``, a constant.
+        Use the single-layer encoded angles, before trainable gates or re-uploading.
+        Compare against :func:`partiqledtr.analysis.uniform_prior_mean` for this arm.
 
         Args:
             x: ``(B, L, 4)`` four-vectors.
@@ -774,13 +653,9 @@ class QFMConstellation(nnx.Module):
         return jnp.mean(product_state_purity(self.encoded_angles(x, mask), self.ansatz))
 
     def angle_stats(self, x: jax.Array, mask: jax.Array) -> dict[str, list[float]]:
-        """Shape of the angle distribution this arm's first block encodes, per qubit.
+        """Describe first-block encoded angles per qubit.
 
-        The companion to :meth:`g_purity`, and the reason both are needed: a purity
-        can rise because the angles spread toward uniform or because they pin near
-        ``pi/2``, and those are opposite in what they do to the input information.
-        ``mean_sin2`` separates them -- it tends to 0.5 for a uniform law, to 1 when
-        pinned at ``pi/2`` and to 0 when clustered at zero.
+        ``mean_sin2`` distinguishes uniform, pi/2-pinned, and zero-clustered angles.
 
         Args:
             x: ``(B, L, 4)`` four-vectors.
@@ -792,16 +667,10 @@ class QFMConstellation(nnx.Module):
         return angle_stats(np.asarray(self.encoded_angles(x, mask)))
 
     def g_purity_exact(self, x: jax.Array, mask: jax.Array) -> float:
-        """Mean g-purity of the state the first QFM block actually prepares.
+        """Measure mean g-purity of the first block's prepared state.
 
-        Runs the circuit to its statevector, parameters and all, and sums
-        ``<psi|B|psi>**2`` over the arm's DLA basis. This is the model-side
-        counterpart of :meth:`g_purity`: the two agree in the clustered limit,
-        where every encoding rotation tends to the identity, and diverge at
-        generic angles because qml-essentials orders each layer ansatz-first.
-
-        Not jittable and ``O(4**n)`` in the basis, so it is measured once at the
-        end of training rather than per step.
+        Sum squared DLA-basis expectations on statevectors. This non-jittable measure
+        is evaluated after training.
 
         Args:
             x: ``(B, L, 4)`` four-vectors.
@@ -852,13 +721,10 @@ class QFMConstellation(nnx.Module):
         return hidden.reshape(*hidden.shape[:-1], self.n_channels, self.n_angles), edge_mask
 
     def block2_encoded_angles(self, x: jax.Array, mask: jax.Array) -> jax.Array:
-        """The angles the *second* QFM block actually rotates by, over real edges.
+        """Return second-block encoded angles over real edges.
 
-        The diagnostic of the re-encoding boundary: block 2 consumes the node
-        update's output directly as RY angles, and nothing gates that
-        distribution the way the encoding report gates the block-1 charts -- at
-        the default init it starts near zero, the collapsed point of a floor-free arm.
-        Channels are stacked as extra rows (same sites, independent circuits).
+        Channels appear as additional rows. The output includes the node update and
+        ``node_omega`` scaling.
 
         Args:
             x: ``(B, L, 4)`` four-vectors.

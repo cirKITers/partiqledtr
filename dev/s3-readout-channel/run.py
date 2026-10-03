@@ -1,37 +1,10 @@
-"""Does the in-algebra readout open the purity-loss channel?
+"""Run the s3 in-algebra readout and purity-loss study.
 
-The s2 expressivity study measured a preconditioner that moves the encoded
-distribution over a 190-fold purity range while the task loss barely responds --
-under a per-qubit Z readout whose observable purity is zero on every floor-free
-arm. The readout is now in the algebra (``<XX_b> + <YY_b>`` per coupling bond);
-this study measures the thing that fix exists to enable: whether the g-purity
-trajectory and the loss become correlated *within* a run.
+Compare runs with and without a learned preconditioner on clustered inputs.
+``--fluksio`` runs the full grid across registered datasets; ``--report`` prints task
+metrics and within-run correlations.
 
-Smoke block first, 10 runs: ``XY_Ring`` x {none, mlp} on the clustered ``legacy``
-encoding at 5 seeds. The clustered arm is where the prediction is falsifiable --
-g-purity starts far below the uniform-prior mean, so a learned preconditioner has
-headroom to move it, and the new readout gives that movement a channel to the
-loss. The ``none`` cells are the within-study control: their encoded distribution
-is frozen, so their purity series is constant and carries no correlation to
-explain away. Expansion (``XY_Brickwork``, ``pair_polar``, the floored
-``XY_AllPairs`` specificity control) waits on this block showing the correlation
-at all.
-
-Runs in process against the splits ``dev/s2-expressivity/data`` exported from
-generate run ``1787760161002-8bde9189`` -- the same data, deliberately, so the
-readout is the only thing that moved between the studies.
-
-``--fluksio`` repeats the full grid, plus the classical GNN baseline, on every
-dataset of the shared registry ``dev/datasets.json`` as versioned runs: dataset 0
-is the pinned run above, ``--generate`` adds generate seeds 1-4 (README, dataset
-repeat). Its records land in ``results/datasets/``, apart from the in-process
-history.
-
-    python dev/s3-readout-channel/run.py            # run the smoke block
-    python dev/s3-readout-channel/run.py --report   # tables + correlations
-    python dev/s3-readout-channel/run.py --generate           # datasets 1-4 into the registry
-    python dev/s3-readout-channel/run.py --fluksio            # full grid x datasets, versioned
-    python dev/s3-readout-channel/run.py --fluksio --report   # the same tables, per dataset
+Usage: ``python dev/s3-readout-channel/run.py [--fluksio] [--report]``.
 """
 
 from __future__ import annotations
@@ -79,13 +52,9 @@ def cells(n_channels: int = 1) -> list[dict[str, Any]]:
 
 
 def cells_opt() -> list[dict[str, Any]]:
-    """The optimizer smoke: per-group learning rates at the widened dose.
+    """Return widened-channel optimizer probes around the shared-rate baseline.
 
-    Against the K=4 shared-rate baselines already in ``smoke.json``. The MLP
-    rate moves down and up around the shared 1e-3 (is the accuracy cost of the
-    preconditioner an optimisation artifact?); the circuit rate moves up with
-    and without the preconditioner (an earlier learning-rate sweep saw the rescue
-    at 1e-2, and the ``none`` cell says whether a faster circuit helps regardless).
+    Vary preconditioner and circuit learning rates separately.
     """
     wide = {**BASE, "n_channels": 4}
     return [
@@ -97,13 +66,10 @@ def cells_opt() -> list[dict[str, Any]]:
 
 
 def cells_full() -> list[dict[str, Any]]:
-    """The full grid, at the widened dose and the optimizer smoke's pick.
+    """Return the widened full grid with the selected circuit learning rate.
 
-    ``lr_qfm = 1e-2`` throughout (the circuit must track the latent distribution
-    the preconditioner moves), everything else at the shared 1e-3.
-    Arms: both floor-free ansaetze x {none, mlp} x {clustered legacy, pair_polar},
-    plus the floored ``XY_AllPairs`` specificity control, where the purity-loss
-    correlation must be absent.
+    Cross floor-free arms, preconditioners, and input maps; include the floored
+    ``XY_AllPairs`` control.
     """
     pick = {"model": "qfm", "n_channels": 4, "lr_qfm": 1e-2}
     grid = [
@@ -343,13 +309,9 @@ def label(cell: dict[str, Any]) -> str:
 
 
 def correlations(trace: list[dict[str, float]]) -> dict[str, float | None]:
-    """Within-run association of the g-purity and validation-loss series.
+    """Compute raw and first-differenced purity-loss correlations per run.
 
-    Both raw and first-differenced: two monotone series correlate trivially, so
-    the de-trended number is the honest one and the headline. ``None`` where a
-    series is constant (the ``none`` control) -- there is nothing to correlate.
-    The success criterion expects *negative* values on the mlp cells: purity up,
-    loss down.
+    Return ``None`` for constant series.
     """
     import numpy as np
     from scipy import stats

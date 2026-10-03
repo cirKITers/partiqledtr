@@ -1,30 +1,9 @@
-"""Trig-interface probe: does classical trigonometric capacity fit the QFM arm?
+"""Probe node-update nonlinearities and second-block encoding in s5.
 
-The quantum arm's classical parts are purely linear, so the whole model is
-trig-polynomial -> linear -> trig-polynomial -> linear -- and block 2 consumes
-the node update's output directly as RY angles. The init-time diagnostic
-(2026-09-02) showed that boundary is *not* collapsed at start (std 0.89 rad,
-0.92 mu_n, against the collapse hypothesis), sitting at the uniform level while
-the gated block-1 chart sits at 1.89 mu_n. What is open is what training does to
-it, and whether classical nonlinear capacity in the node update pays -- and if
-so, whether the *trigonometric* kind (SIREN, cf. QIREN) pays
-beyond a matched-parameter ELU control.
+Compare linear updates at two angle scales with matched-parameter SIREN and
+ELU updates on the s4 cycle baseline.
 
-Four cells on the s4 baseline configuration (`XY_Cycle`, floor-free, cheapest;
-`pair_polar_boost`; K=4; `lr_qfm` 1e-2; no preconditioner, so the node axis is
-the only thing varying):
-
-    linear-w1   the s4 architecture, now with block-2 instrumentation (control)
-    linear-w8   the boundary-scale axis alone (`node_omega = 8`)
-    siren       sine node MLP, SIREN init (the trig-interface arm)
-    elu         the same MLP with ELU -- matched parameters, different activation
-
-Reads: task scores against the s4 smoke baseline (0.555 +- 0.009), and the
-trained block-2 purity endpoints the instrumentation now records.
-
-    python dev/s5-trig-nodes/run.py             # the probe (4 cells x 2 seeds)
-    python dev/s5-trig-nodes/run.py --report    # tables + correlations
-    python dev/s5-trig-nodes/spectrum.py        # the task-spectrum probe (no training)
+Usage: ``python dev/s5-trig-nodes/run.py [--report]``.
 """
 
 from __future__ import annotations
@@ -72,13 +51,9 @@ def cells() -> list[dict[str, Any]]:
 
 
 def cells_expand() -> list[dict[str, Any]]:
-    """The siren expansion: arm generality and the preconditioner interaction.
+    """Expand the SIREN probe across graph arms and preconditioners.
 
-    siren across the graph trichotomy x {none, mlp}; the cycle x none cell
-    already exists in the probe, so only its mlp completion runs here. The
-    linear baselines are s4's smoke grid, and the capacity control (elu) was
-    priced on the cycle in the probe. Reading rule in the README, registered
-    before the numbers.
+    Exclude the cycle-without-preconditioner cell already in the probe.
     """
     siren = {**BASE, "node_update": "siren"}
     return [
@@ -89,13 +64,9 @@ def cells_expand() -> list[dict[str, Any]]:
 
 
 def cells_confirm() -> list[dict[str, Any]]:
-    """Confirmation of the probe and expansion headline cells, plus the missing elu controls.
+    """Confirm headline cells and add their ELU controls.
 
-    Submit with ``--seeds 5``: dedup is study-wide, so the probe/expand seeds
-    are not re-run -- the siren headline cells gain three seeds each and the
-    elu control reaches five seeds on every arm, which is what closes the
-    capacity caveat behind the floor-free-specific reading.
-    The secondary mlp-interaction cells stay at their two seeds.
+    Study-wide deduplication skips seeds already run.
     """
     siren = {**BASE, "node_update": "siren"}
     elu = {**BASE, "node_update": "elu"}

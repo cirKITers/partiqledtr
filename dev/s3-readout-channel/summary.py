@@ -1,18 +1,9 @@
-"""The one-figure summary of the s3 full grid.
+"""Build the s3 summary CSV and four-panel figure.
 
-Four panels, one claim each: (a) the preconditioner rescues the clustered
-distribution to the uniform-prior band; (b) the loss descends alongside; (c) the
-per-epoch purity-loss coupling exists exactly on the floor-free x clustered
-cells and not on the floored control; (d) the task effect follows the same
-pattern. Floor-free arms (`XY_Ring`, `XY_Brickwork`) are pooled -- they behave
-identically here and the per-arm split stays in the CSV.
+The panels show purity, loss, their per-epoch association, and task accuracy.
+``--plot`` redraws from the existing CSV; ``--datasets`` uses versioned runs.
 
-The figure is drawn from ``results/summary.csv`` alone, so the plot can be
-restyled or rebuilt without touching the run records:
-
-    python dev/s3-readout-channel/summary.py              # rebuild csv, then figure
-    python dev/s3-readout-channel/summary.py --plot       # figure from existing csv
-    python dev/s3-readout-channel/summary.py --datasets   # the same from results/datasets/
+Usage: ``python dev/s3-readout-channel/summary.py [--plot | --datasets]``.
 """
 
 from __future__ import annotations

@@ -1,32 +1,9 @@
-"""The graph trichotomy at ``n = 6`` on a kinematics-informed chart.
+"""Run the six-qubit cycle, ladder, and odd-chord scaling grid.
 
-Three graph arms over the same intra-particle chains -- the even cycle (poly
-floor-free), the 3-rung ladder (encoded-universal floor-free) and the odd-chord
-control (floored) -- crossed with {none, mlp}, at the configuration of s3's full
-grid (K=4, ``lr_qfm=1e-2``). The clustered ``legacy`` axis is dropped from this
-study (user decision 2026-08-31), so the annihilation prediction is deferred; what
-this grid tests is the certificate-range, hardness and specificity predictions
-(predictions 1, 3, 4 in the README) with the preconditioner axis kept for the
-distribution effect.
+``--encodings`` prices three-angle charts before training. ``--fluksio`` runs
+the grid on registered datasets; ``--report`` summarises results.
 
-The third per-particle angle is the chart the ``--encodings`` block picks: the
-three ``pair_polar_*`` candidates are priced in g-purity on real kinematics
-*before any training*, and the grid runs the chart whose induced angle law sits
-at or above ``mu_n`` on the floor-free arms (the same no-training gate as s1).
-
-Runs against generate run ``1787760161002-8bde9189`` -- the same data as s2/s3,
-deliberately, so the register and chart are the only things that moved between
-the studies. ``--fluksio`` submits every cell as a versioned run of the ``train``
-flow, on every dataset of the shared registry ``dev/datasets.json`` (s3's
-``--generate`` fills it, and the records here without a dataset are dataset 0);
-without it the cells run in process on the splits
-``dev/s2-expressivity/data`` exported from that run, which is the sandbox path.
-
-    python dev/s4-scaling/run.py --encodings   # price the three charts, no training
-    python dev/s4-scaling/run.py --gate        # one worst-case cell, cost projection
-    python dev/s4-scaling/run.py --import-inprocess  # seeds 0-2, run in process
-    python dev/s4-scaling/run.py --fluksio     # the grid (6 cells x 5 seeds x datasets)
-    python dev/s4-scaling/run.py --report      # tables + correlations
+Usage: ``python dev/s4-scaling/run.py [--encodings | --fluksio | --report]``.
 """
 
 from __future__ import annotations
@@ -323,15 +300,10 @@ def run_fluksio(
 
 
 def import_inprocess(filename: str, dataset: str, *, out: Path) -> None:
-    """Record the in-process seeds of ``filename`` in the engine.
+    """Import unversioned in-process results as finished engine runs.
 
-    They ran through :func:`one_cell`, unversioned, on qml-essentials' built-in
-    simulator. fluksio's import stores each as a finished ``train`` run with
-    ``cause="import"`` and no commit or code digest -- versioned as what it is,
-    not as a run of today's code -- with its params completed the way a
-    submission would be, so an imported cell and a native one share a params
-    digest. Re-importing is a no-op (keyed by ``external_id``); the run id is
-    written back into the record.
+    Imported records retain their source identity and parameter digest. Repeated
+    imports use the same external ID.
     """
     from datetime import datetime
 
@@ -378,13 +350,9 @@ def label(cell: dict[str, Any]) -> str:
 
 
 def correlations(trace: list[dict[str, float]]) -> dict[str, float | None]:
-    """Within-run association of the g-purity and validation-loss series.
+    """Compute raw and first-differenced purity-loss correlations per run.
 
-    Both raw and first-differenced: two monotone series correlate trivially, so
-    the de-trended number is the honest one and the headline. ``None`` where a
-    series is constant (the ``none`` control) -- there is nothing to correlate.
-    On the favourable chart the expectation mirrors the ``pair_polar`` rows of
-    s3's full grid: coupling absent, on floored and floor-free arms alike.
+    Return ``None`` for constant series.
     """
     import numpy as np
     from scipy import stats

@@ -101,14 +101,10 @@ def test_identity_preconditioner_leaves_model_output_unchanged(cls):
 
 
 def test_parameter_dtype_does_not_follow_the_global_x64_flag():
-    """Every parameter is float32, whether or not something enabled x64.
+    """Check model parameters remain float32 when JAX x64 is enabled.
 
-    Parameters created without an explicit dtype follow the global
-    `jax_enable_x64` flag, while every `nnx.Linear` pins `param_dtype=float32`.
-    Mixing the two silently promotes the forward pass to float64, so a model built
-    under one setting would not match one built under the other. Pinning the dtype
-    everywhere is what keeps the models independent of a global flag that any
-    dependency, or the user, may flip.
+    An unpinned parameter dtype would follow the global flag and promote the
+    forward pass.
     """
     was_enabled = jax.config.jax_enable_x64
     try:

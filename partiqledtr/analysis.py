@@ -1,52 +1,8 @@
-r"""Theory instrumentation for the unflattening connection.
+"""Measure encoded-state purity, circuit-state purity, and dynamical Lie algebras.
 
-Three things live here, all recorded or tracked around training rather than trained:
-
-1. **Product-state g-purity** -- the trainability observable.  For a
-   floor-free, polynomial-DLA ansatz the unflattening result (Theorem 1) states
-   :math:`\mathrm{Var}_W[\langle Z_i \rangle] = P_{\mathfrak g}(\rho) / \dim
-   \mathfrak g`, so the g-purity of the *encoded input state* alone decides
-   trainability.  The encoded state is the RY product state
-   :math:`\bigotimes_q R_y(\theta_q)|0\rangle`, on which
-   :math:`\langle X \rangle = \sin\theta`, :math:`\langle Y \rangle = 0` and
-   :math:`\langle Z \rangle = \cos\theta`.  :func:`product_state_purity` sums the
-   squared expectations over the arm's own DLA basis, which reproduces the
-   manuscript's hand-derived closed forms to float32 *and* extends to arms that
-   have none -- the project's own ansatz arms.
-   :func:`g_purity_offdiag` is kept as the ported closed form of
-   ``reference/unflattening/unflattening/utils/purity.py``: it prices encodings
-   in :func:`encoding_purity` and pins the general form in the tests.
-
-   **Which angles go in.**  The closed forms describe the
-   state *entering the first trainable block*, which is the scope the
-   unflattening manuscript claims for them under re-uploading: later encoding
-   layers act on parameter-dependent entangled states and are not product
-   states at all.  So the argument is the encoded angle
-   :math:`\theta_q = \sum_f w_{qf} u_f` of a *single* layer, never
-   :math:`L \theta`.  A purity is therefore a property of *data plus encoding*
-   -- weights and re-upload mask included -- not of the trained circuit.
-
-2. **Exact g-purity** -- :func:`g_purity_exact` sums
-   :math:`\langle\psi|B|\psi\rangle^2` over the DLA basis of the *actual*
-   statevector the circuit prepares, parameters and all.  At ``n_qubits = 4``
-   the basis has at most 255 words and the state 16 amplitudes, so it is cheap.
-   It is the honest counterpart of the product-state form: the two agree exactly
-   in the clustered limit (where every encoding rotation tends to the identity
-   and :math:`P_{\mathfrak g}` is Ad-invariant under :math:`e^{\mathfrak g}`) and
-   diverge at generic angles, because qml-essentials orders each layer
-   *ansatz first, then encoding*.  Reporting both is what lets a claim say
-   which object it is about.
-
-3. **DLA pre-check** -- :func:`dla_check` records, per ansatz arm and before any
-   training, the DLA dimension and the number of Z-only (diagonal) basis words.
-   The latter is the floored/floor-free certificate: diagonal words have
-   expectation 1 on the clustered-angle limit :math:`\theta \to 0`, so their
-   count is the deterministic g-purity floor that makes an arm indifferent to
-   the input distribution.  The arms and their bond structure are in
-   :mod:`partiqledtr.ansaetze`; what the certificate says about each is the
-   experiment, and it is measured rather than asserted.
-
-Spectrum/FCC instrumentation (fourier-fingerprints) is not here yet.
+Product-state purity uses angles from one encoding layer before the first
+trainable block. Exact purity uses the circuit's prepared state. The DLA
+certificate records the basis dimension and diagonal-word floor of each arm.
 """
 
 import functools
@@ -70,22 +26,11 @@ _TWO_QUBIT_GENERATOR = {"RXX": "XX", "RYY": "YY", "RZZ": "ZZ"}
 
 
 def g_purity_offdiag(theta: jax.Array) -> jax.Array:
-    r"""Return the off-diagonal (``XY_Brickwork``) g-purity of an RY product state.
+    """Return the ``XY_Brickwork`` g-purity of an RY product state.
 
-    The DLA of ``XY_Brickwork`` is spanned by
-    :math:`\{X_j Z \cdots Z X_k,\, Y_j Z \cdots Z Y_k\}` at odd separation and
-    :math:`\{X_j Z \cdots Z Y_k,\, Y_j Z \cdots Z X_k\}` at even separation.  On
-    :math:`\bigotimes_k R_y(\theta_k)|0\rangle` only the ``X..X`` words survive
-    (:math:`\langle Y_k \rangle = 0`), leaving
-
-    .. math::
-        P_{\mathfrak g} = \sum_{j < k,\ k - j \ \mathrm{odd}}
-            \sin^2\theta_j \, \sin^2\theta_k \prod_{j < l < k} \cos^2\theta_l .
-
-    There is no diagonal word, hence no floor: clustered angles
-    (:math:`\theta \to 0`) drive this to zero as :math:`O(\theta^4)`.
-    Evaluated by an O(n) two-parity recurrence.  Port of ``offdiag_closed_form``
-    in ``reference/unflattening/unflattening/utils/purity.py``.
+    Only odd-separation X..X basis words contribute. An O(n) two-parity
+    recurrence evaluates their sum; clustered angles drive it to zero. Ported
+    from ``reference/unflattening/unflattening/utils/purity.py``.
 
     Args:
         theta: Encoding angles of shape ``(..., n)``.
@@ -140,21 +85,10 @@ def _yfree_masks(ansatz: str, n_qubits: int) -> tuple[jax.Array, jax.Array]:
 
 
 def product_state_purity(theta: jax.Array, ansatz: str) -> jax.Array:
-    r"""Return the g-purity of an RY product state, for any ansatz arm.
+    """Return the g-purity of an RY product state for any ansatz arm.
 
-    On :math:`\bigotimes_q R_y(\theta_q)|0\rangle` a Pauli word has
-    :math:`\langle X_q \rangle = \sin\theta_q`, :math:`\langle Y_q \rangle = 0`
-    and :math:`\langle Z_q \rangle = \cos\theta_q`, so only the Y-free basis
-    words survive and
-
-    .. math::
-        P_{\mathfrak g} = \sum_{B \ \mathrm{Y-free}}
-            \prod_{q \in X(B)} \sin^2\theta_q \prod_{q \in Z(B)} \cos^2\theta_q .
-
-    This is the same object the manuscript's closed forms describe -- it agrees
-    with :func:`g_purity_offdiag` to float32 -- but it is read off the arm's own
-    DLA basis instead of a hand-derived series, which is what lets a *new*
-    ansatz be measured at all. Cost is ``O(|basis| * n)`` and it is jittable.
+    Only Y-free DLA words contribute. Each word contributes the product of
+    squared sine factors at X sites and squared cosine factors at Z sites.
 
     Args:
         theta: Encoded angles of shape ``(..., n_qubits)`` of a single encoding
@@ -209,13 +143,9 @@ def dla_basis(ansatz: str, n_qubits: int) -> tuple[PauliWord, ...]:
 
 
 def g_purity_exact(states: np.ndarray, basis: Sequence[PauliWord]) -> np.ndarray:
-    r"""Return the exact g-purity of statevectors against a DLA basis.
+    """Sum squared DLA-basis expectations on the supplied statevectors.
 
-    :math:`P_{\mathfrak g} = \sum_B \langle\psi|B|\psi\rangle^2`, evaluated on
-    the state the circuit *actually* prepares rather than on the product state
-    the closed forms describe.  Use it to check a closed-form series rather than
-    to replace it: the closed form is the theory's object (the encoded angle
-    distribution), this is the model's.
+    Unlike product-state purity, this measures the prepared circuit state.
 
     Args:
         states: ``(..., 2 ** n)`` statevectors.
@@ -244,29 +174,12 @@ TV_BINS = 36
 
 
 def angle_stats(angles: np.ndarray) -> dict[str, list[float]]:
-    r"""Describe the *shape* of an encoded angle distribution, per qubit.
+    """Describe encoded angle distributions separately for each qubit.
 
-    The g-purity says how trainable an encoded state is; it does not say what the
-    distribution looks like, and two very different laws reach the same purity.
-    ``P_{\mathfrak g}`` for the off-diagonal algebra is built from
-    :math:`\sin^2\theta` factors, so it climbs both when the angles *spread*
-    toward uniform -- the flattening the study looks for -- and when they *pin*
-    near :math:`\pi/2`, which is the true maximum :math:`n - 1` and the
-    configuration the unflattening manuscript notes destroys the input
-    information. Telling those apart needs the distribution, not the purity.
-
-    Reported **per qubit**, never pooled: sites peaking at different angles average
-    into something that looks flat, which is the artefact the unflattening latent
-    -drift memo warns about.
-
-    Two cautions on reading ``tv_uniform``:
-
-    * It has a **nonzero floor set by kinematics, not by training**. The
-      ``(p_z, E)`` sites cannot leave ``(0, pi)`` and in practice sit inside about
-      ``[pi/4, 3pi/4]`` (as ``E >= |p_z|``), so those qubits can never be uniform
-      however the preconditioner moves them. Compare a run against the *raw* arm's value at the same
-      site, not against zero.
-    * It depends on :data:`TV_BINS` and on how many angles went in.
+    ``mean_sin2`` distinguishes angles spread toward uniform from angles pinned
+    near pi/2, which can have similar g-purity. ``tv_uniform`` depends on the
+    sample size and :data:`TV_BINS`; kinematics bounds some sites away from
+    uniformity, so compare those sites against the raw encoding.
 
     Args:
         angles: ``(n_samples, n_qubits)`` encoded angles, any real values; they are
@@ -325,28 +238,10 @@ def encoding_purity(
     n_pairs: int = 4096,
     seed: int = 0,
 ) -> dict[str, dict[str, dict[str, float]]]:
-    """Price every feature encoding, crossed with every encoding-weight arm.
+    """Measure g-purity for each feature map and encoding-weight cell.
 
-    This is the measurement behind the project's clearest empirical claim, and the
-    reason it lives here rather than in a notebook: the encoding a decay-tree model
-    picks decides whether its inputs land in the barren regime at all, and the
-    unflattening theory prices that decision in a currency both papers share.
-    Crossing it with the encoding-weight arms answers their central question
-    *without training anything* -- spectral preconditioning is a property of data
-    plus encoding, so if an exponential spectrum lifts a collapsed encoding off the
-    floor, it shows up here.
-
-    Three feature arms, all read off the same events:
-
-    * ``pair_polar`` -- the quantum arm's map, polar angles of ``(px, py)`` and
-      ``(pz, E)``;
-    * ``direct`` -- the ``(theta, phi)`` direction angles of the ``"angles"``
-      encoding, used as-is;
-    * ``legacy`` -- partiqlegan's ``p * E * pi`` product, the clustered arm,
-      and the one where the manuscript's jitter amplification has room to act.
-
-    crossed with the six ``weights-reupload`` cells of
-    :func:`partiqledtr.models.qfm.encoding_matrix`.
+    The feature maps are ``pair_polar``, direct direction angles, and the
+    clustered ``legacy`` product map. All cells use the same sampled edges.
 
     Args:
         split: A loaded dataset split; needs the feature array of every arm plus
@@ -463,17 +358,10 @@ def _pauli_word(n_qubits: int, *placements: tuple[int, str]) -> str:
 
 
 def ansatz_generators(ansatz: str, n_qubits: int) -> list[str]:
-    r"""Return the Pauli-word generators of an ansatz layer's rotation gates.
+    """Return deduplicated Pauli generators from an ansatz's gate structure.
 
-    Walks the ansatz's own ``structure()`` and its ``Topology`` helpers, so the
-    wire sets are the ones the circuit actually applies rather than an assumed
-    pattern.  Single-qubit ``R\sigma`` contributes :math:`\sigma_q`, two-qubit
-    ``R\sigma\sigma`` contributes :math:`\sigma_j \sigma_k` on each topology
-    bond, and ``CRX(c, t)`` -- whose generator is
-    :math:`|1\rangle\langle 1|_c \otimes X_t = (I - Z_c) X_t / 2` -- contributes
-    the two words :math:`X_t` and :math:`Z_c X_t`.  Duplicates are dropped, which
-    makes the ``CRX`` split exact for ``Circuit_19``: its bare :math:`X_t` are
-    already generated by the ``RX`` block.
+    Single- and two-qubit rotations contribute their Pauli words. ``CRX(c, t)``
+    contributes ``X_t`` and ``Z_c X_t`` from its controlled generator.
 
     Args:
         ansatz: One of :data:`partiqledtr.ansaetze.ANSAETZE`.
@@ -514,21 +402,10 @@ def ansatz_generators(ansatz: str, n_qubits: int) -> list[str]:
 def dla_check(
     ansatz: str = "XY_Brickwork", n_qubits: int = 4, max_dim: int = 2000
 ) -> dict[str, str | int | float | bool]:
-    r"""Return the DLA certificate of an ansatz arm, recorded before any training.
+    """Measure an ansatz's DLA dimension and diagonal-word purity floor.
 
-    Computes the Lie closure of :func:`ansatz_generators` and reports its
-    dimension together with ``n_diag_words``, the number of Z-only basis words.
-    Diagonal words have expectation 1 on :math:`|0\rangle^{\otimes n}`, so their
-    count is the deterministic g-purity floor of the clustered-angle limit: 0
-    certifies a floor-free arm on which the unflattening rescue is live, while
-    :math:`n` (``Matchgate``) certifies the floored control arm.
-
-    Measured at the constellation size ``n_qubits=4``::
-
-        ansatz          dim_g  dim_su   ratio  n_diag_words  runtime
-        XY_Brickwork       12     255  0.0471             0   0.6 ms
-        Matchgate          28     255  0.1098             4   1.9 ms
-        Circuit_19        255     255  1.0000            15   464 ms
+    The Lie closure of :func:`ansatz_generators` supplies the basis. Its Z-only
+    word count is the clustered-angle g-purity floor.
 
     Args:
         ansatz: One of :data:`partiqledtr.ansaetze.ANSAETZE`.
@@ -601,12 +478,7 @@ def dla_report(*, ansatz: str = "XY_Brickwork", n_qubits: int = 4, max_dim: int 
     provides=[Port("arm_report", "json")],
 )
 def arm_report(*, n_qubits: int = 4, max_dim: int = 2000) -> dict[str, Any]:
-    """Record every ansatz arm's certificate, prior scale and partition symmetry.
-
-    The ansatz-arm table, as a run rather than as a number someone typed into a
-    document: the DLA dimension and floor count that decide whether an arm is
-    input-distribution sensitive, the uniform-prior mean its purities have to be
-    read against, and whether its bond set survives the endpoint swap.
+    """Record each arm's DLA certificate, uniform-prior scale, and swap symmetry.
 
     Args:
         n_qubits: Qubits per edge QFM.
@@ -644,16 +516,10 @@ def encoding_cells(
     clustered_sigmas: tuple[float, ...] = (0.30, 0.03),
     cells_seed: int = 0,
 ) -> dict[str, Any]:
-    """Characterise every encoding-weight cell, and price it on synthetic angle laws.
+    """Characterise encoding weights and price synthetic angle laws.
 
-    Two things per encoding-weight cell, neither of which needs a dataset: what
-    the cell *is* -- its weight matrix, per-feature spectrum, dissociation and
-    endpoint symmetry -- and what it *does* to the g-purity of a uniform and of a
-    clustered angle law.
-
-    The synthetic prices are the arm's prediction, recorded before the real
-    encodings are read so the measured table confirms rather than discovers.
-    ``encoding_purity`` is the same question on real kinematics.
+    For each cell, record its weight matrix, spectrum, dissociation, endpoint
+    symmetry, and purity on uniform and clustered angles.
 
     Args:
         n_qubits: Qubits per edge QFM.

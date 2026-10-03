@@ -67,16 +67,10 @@ def _word(letter, wires, n=N_QUBITS):
 )
 @pytest.mark.parametrize("n_layers", [1, 2, 3])
 def test_encoding_is_a_ry_product_state(ansatz, n_layers, weights, reupload):
-    """With zero ansatz parameters each bond readout must factorise into sines.
+    """Check zero-ansatz bond readout factorises on the RY product state.
 
-    On the RY product state ``<X_q> = sin(theta_q)`` and ``<Y_q> = 0``, so the
-    readout ``<XX_b>`` must be exactly ``sin(n_layers * theta_j) sin(n_layers *
-    theta_k)`` with ``theta = W u``, and every ``<YY_b>`` slot must vanish. This
-    pins the whole encoding contract at once: that the re-upload mask sends each
-    feature to the qubits it claims, that a qubit's several RY gates add into one
-    angle, that the observables come back interleaved ``[XX_b, YY_b]`` in bond
-    order, that re-uploading multiplies the angle, and that the encoded state is
-    the RY product state the purity forms assume.
+    ``XX`` gives the product of encoded sines, ``YY`` vanishes, and observable
+    slots follow bond order.
     """
     qfm = make_qfm(ansatz, n_layers=n_layers, seed=SEED, enc_weights=weights, enc_reupload=reupload)
     u = jnp.asarray(np.random.default_rng(SEED).uniform(0, np.pi, size=(5, N_QUBITS)))
@@ -150,14 +144,9 @@ def _swap_equivariant(weights, reupload):
 
 
 def test_ternary_cyclic_is_the_dissociated_cell():
-    r"""Arm B's premise, checked by exhaustion rather than by citation.
+    """Check dissociation of the ternary cyclic weight matrix by exhaustion.
 
-    Spectral preconditioning needs the weight map to kill every cross term of the
-    purity average, which for a weight matrix W means no signed subset relation:
-    W^T eps != 0 for every eps in {-1,0,1}^n \ 0. Equal weights fail it -- that is
-    the manuscript's point about Hamming encodings -- and so does a widened mask
-    with equal weights, which is what makes ``hamming-cyclic`` the control that
-    separates *mixing* from *dissociation*.
+    A dissociated matrix has no nonzero signed subset relation among its rows.
     """
     assert _dissociated("ternary", "cyclic")
     assert _dissociated("binary", "cyclic")
@@ -168,15 +157,10 @@ def test_ternary_cyclic_is_the_dissociated_cell():
 
 
 def test_only_the_paired_exponent_is_dissociated_and_swap_equivariant():
-    """The cell that composes with a partition-respecting ansatz.
+    """Check paired exponents preserve particle-swap symmetry and dissociation.
 
-    Exponential weights `base ** q` distinguish the qubits, which is what makes
-    them dissociated -- and the endpoint swap pi = (0 2)(1 3) exchanges the two
-    particles' qubits, so `3 ** q` is *not* invariant under it and would undo the
-    equivariance `XY_Ring` restores. Repeating the exponent per particle,
-    `3 ** (q mod 2)`, satisfies both: the dissociation condition is on the weight
-    *matrix*, not on a per-qubit vector, and the widened mask leaves it enough
-    room.
+    Distinct per-qubit exponents break the swap symmetry; repeating them per
+    particle preserves it.
     """
     assert _swap_equivariant("ternary_pair", "cyclic")
     assert _dissociated("ternary_pair", "cyclic")
@@ -352,13 +336,9 @@ def test_padded_particles_cannot_reach_the_valid_logits():
 
 
 def test_gradients_flow_through_the_quantum_edge_function_repeatedly():
-    """Repeated and jitted gradients must agree.
+    """Check repeated and jitted gradients through the functional QFM call.
 
-    The forward pass goes through the functional ``Model.apply``, which writes no
-    state onto the circuit object, so an outer transform is safe. Calling
-    ``Model.__call__`` instead would stash the traced parameters on the instance
-    and leak them into a later call; this test is what catches a regression into
-    that pattern.
+    A stateful circuit call could retain traced parameters across evaluations.
     """
     x, mask = _batch(np.random.default_rng(SEED))
     graphdef, state = nnx.split(_model())
@@ -378,13 +358,9 @@ def test_gradients_flow_through_the_quantum_edge_function_repeatedly():
 
 
 def test_widened_channels_widen_the_node_state_and_nothing_else():
-    """The several-QFMs-per-edge route to a wider node state.
+    """Check extra QFM channels widen the node state and preserve channel zero.
 
-    ``n_channels = K`` runs K independently initialised QFMs per block, so the
-    inter-block node state widens from 2 to 2K numbers -- while the classical
-    parts stay particle-local, the edge weights stay shared, and channel 0
-    of each block starts at exactly the K=1 parameters, so the widening adds
-    draws without re-initialising the narrow model it contains.
+    Classical updates remain particle-local and edge parameters remain shared.
     """
     rng = np.random.default_rng(SEED)
     x, mask = _batch(rng)
@@ -499,13 +475,7 @@ def _clustered(rng, batch=6, n_leaves=4):
 
 @pytest.mark.parametrize("ansatz", ANSAETZE)
 def test_closed_form_and_exact_purity_agree_in_the_clustered_limit(ansatz):
-    """The one regime where the two purity observables must coincide.
-
-    Every encoding rotation tends to the identity as the angles cluster, and the
-    g-purity is Ad-invariant under exp(g), so the product-state closed form and the
-    real statevector agree there -- and only there. This is what licenses reading
-    the per-arm clustered-limit floors off the closed form.
-    """
+    """Check closed-form and exact purity agree as encoding angles vanish."""
     model = _model(ansatz=ansatz)
     x, mask = _clustered(np.random.default_rng(SEED))
 
@@ -518,13 +488,7 @@ def test_closed_form_and_exact_purity_agree_in_the_clustered_limit(ansatz):
 
 
 def test_g_purity_uses_the_encoded_angle_not_the_reuploaded_one():
-    """The closed form describes the state entering the first trainable block.
-
-    Re-uploading multiplies the *effective* angle, but the product state the
-    unflattening forms are derived for is the one at the first encoding, so the
-    depth must not enter the observable. Without this the whitening acceptance test
-    and the tracked series would disagree by a factor of n_layers.
-    """
+    """Check product-state purity uses angles before re-uploading depth."""
     x, mask = _batch(np.random.default_rng(SEED))
     purities = {n: float(_model(n_layers=n).g_purity(x, mask)) for n in (1, 2, 3)}
     assert purities[1] == pytest.approx(purities[2]) == pytest.approx(purities[3])
@@ -534,15 +498,10 @@ def test_g_purity_uses_the_encoded_angle_not_the_reuploaded_one():
 
 
 def test_legacy_angle_map_clusters_where_pair_polar_does_not():
-    """The clustered control arm, through the whole normalise-then-encode path.
+    """Check legacy max scaling clusters encoded angles near zero.
 
-    partiqlegan multiplied two unit-interval quantities. Real kinematics are mostly
-    soft, so after max-normalisation both factors are small and their product
-    collapses onto zero -- the barren point of the RY encoding. The pair-polar map
-    instead concentrates near pi/2, which is the favourable one. Measured as
-    g-purity against the whitening threshold, the two arms land on opposite sides
-    of it, which is what makes the legacy arm the place the rescue prediction is
-    falsifiable.
+    Pair-polar angles instead concentrate near pi/2, placing the arms on opposite
+    sides of the whitening threshold.
     """
     rng = np.random.default_rng(SEED)
     # Mostly-soft momenta with a hard tail, which is what max-normalisation sees.
@@ -578,13 +537,10 @@ def test_whitening_accepts_a_nested_list_so_a_checkpoint_can_carry_it():
 
 
 def test_whitening_node_does_not_fail_a_run_it_has_nothing_to_fit_on():
-    """A classical arm ignores the rotation, so it must not be able to fail the run.
+    """Check the whitening node accepts classical runs without four-vectors.
 
-    ``whitening_rotation`` runs for every run so its acceptance report is always
-    recorded. Making it reject an encoding without four-vectors broke every
-    classical run instead. The fallback still fits every applied rotation on the
-    features it rotates, because only the QFM applies the rotation and the QFM
-    accepts four-vectors alone.
+    Only the QFM applies a rotation, but the flow records an acceptance report
+    for every run.
     """
     from partiqledtr.data.whitening import _ROTATABLE
 

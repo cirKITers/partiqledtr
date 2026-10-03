@@ -1,20 +1,9 @@
-"""Figures for the s2 expressivity study.
+"""Render the s2 purity, preconditioner, and angle-distribution figures.
 
-Three claims, one figure each:
+The figures compare purity with task score, show the preconditioner's effect
+by encoding, and plot angle distributions per qubit.
 
-1. ``purity_vs_task`` -- the input-distribution sensitivity the unflattening theory
-   measures and the task performance it is supposed to bear on are **orthogonal**.
-   The depth arm moves performance at fixed purity (a vertical spread), the encoding
-   arm moves purity over 5.7x at fixed performance (a horizontal spread). A scalar
-   summary of the angle distribution is deliberately *not* an axis here: g-purity is
-   the theory's own scalar, and it is the one the closed forms are written in.
-2. ``preconditioner_channel`` -- what the trained preconditioner can do to the encoded
-   distribution depends on the encoding weights, which is spectral preconditioning
-   seen from the model side rather than from the data.
-3. ``angle_plane`` -- the angle distribution itself, in the two coordinates that
-   separate its regimes. One point per qubit, never pooled.
-
-    python dev/s2-expressivity/figures.py
+Usage: ``python dev/s2-expressivity/figures.py``.
 """
 
 from __future__ import annotations
@@ -203,12 +192,10 @@ def _tag(row: dict[str, Any]) -> str:
 
 
 def _place(points, axis):
-    """Stack labels within a column and return them with their leader lines.
+    """Stack labels by y within each x column and return leader lines.
 
-    Many configurations share an x exactly -- depth and ansatz do not touch the
-    encoding, so they sit at the same purity, which is itself the point of the
-    figure. Labels are stacked by y *within* a column and joined to their mark by a
-    leader, rather than nudged in x, which would misplace the data.
+    Depth and ansatz cells share purity values, so moving labels in x would
+    misrepresent their data positions.
     """
     (x0, x1), (y0, y1) = axis.get_xlim(), axis.get_ylim()
     width, step = 0.045 * (x1 - x0), 0.052 * (y1 - y0)
@@ -346,13 +333,9 @@ def purity_vs_task(rows: list[dict[str, Any]], path: Path) -> None:
 
 
 def preconditioner_channel(rows: list[dict[str, Any]], path: Path) -> None:
-    """Claim 2: what the preconditioner can do to the purity depends on the encoding.
+    """Plot per-seed purity changes by encoding and preconditioner.
 
-    Spectral preconditioning and the DLA floor, seen from the model side. Drawn as
-    a strip of the per-seed outcomes rather than an arrow to their mean, because
-    the mean is not the finding: on a floor-free Hamming arm the trained preconditioner
-    lands anywhere between an annihilated state and one above where it started, and
-    an arrow would report the midpoint of that as though it were a displacement.
+    Show individual outcomes because their spread can conceal opposite shifts.
     """
     cells = _fig2_cells(rows)
     families = {
@@ -434,14 +417,9 @@ def preconditioner_channel(rows: list[dict[str, Any]], path: Path) -> None:
 
 
 def angle_plane(rows: list[dict[str, Any]], path: Path) -> None:
-    r"""Claim 3: the angle distribution needs two coordinates, not one.
+    """Plot each qubit's angle law by uniformity and mean squared sine.
 
-    A g-purity rises both when angles spread toward uniform and when they pin near
-    :math:`\pi/2`, and those are opposite in what they do to the input information.
-    ``mean_sin2`` separates them -- 0.5 uniform, 1 pinned, 0 clustered -- and total
-    variation says how far from uniform the law is. One point per *qubit*: sites
-    peaking at different angles average into something that looks flat, which is
-    the artefact the latent-drift memo warns about.
+    These coordinates separate uniform spreading from pinning near pi/2.
     """
     families = {
         "hamming": ("#2a78d6", "pair-polar, Hamming"),
@@ -574,19 +552,10 @@ _SPREAD_METRICS = (
 
 
 def preconditioner_channel_csv(rows: list[dict[str, Any]], path: Path) -> None:
-    """Write the data behind :func:`preconditioner_channel`, one row per configuration.
+    """Write figure 2 metrics by configuration and seed group.
 
-    Every metric appears as ``<name>``, ``<name>_sd`` and ``<name>_sem`` over the
-    seed group, so an error bar is a column rather than a recomputation -- ``sd``
-    for the spread of runs, ``sem`` for the uncertainty on the mean, and
-    ``n_seeds`` so either can be turned into the other or into a t-interval.
-
-    ``purity_start`` has no spread by construction: it is a property of data plus
-    encoding, and a zero-init preconditioner is the identity at epoch 0, so every seed
-    of a configuration starts at the same value. ``shift`` is therefore
-    ``purity_end - purity_start`` per seed, and its spread is the end's.
-
-    The companion ``*_seeds.csv`` carries the individual runs.
+    Each metric has mean, standard deviation, and standard error columns; the
+    companion seeds CSV retains individual observations.
     """
     cells = _fig2_cells(rows)
     context = [
