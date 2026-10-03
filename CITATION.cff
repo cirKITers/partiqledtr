@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: "Strobl"
+    given-names: "Melvin"
+    orcid: "https://orcid.org/0000-0003-0229-9897"
+title: "partiqledtr"
+version: 0.2.0
+date-released: 2026-10-03
+repository-code: "https://github.com/cirKITers/partiqledtr"
+license: MIT
