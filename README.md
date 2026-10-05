@@ -5,7 +5,6 @@ See the [corresponding section](#architecture) below for details concerning the 
 The project builds upon the same foundation as the [BaumBauen](https://github.com/helmholtz-ai-energy/baumbauen) project.
 
 Tech stack:
->>>>>>> dc98393e64094f4e596f4f4b7c1c28254da72084
 - [qml-essentials](https://github.com/cirKITers/qml-essentials): quantum Fourier models
 - [jaqsi](https://github.com/cirKITers/jaqsi): simulator in JAX
 - [phasespace-jax](https://github.com/cirKITers/phasespace-jax): JAX port of phasespace for decay event generation
