@@ -1,6 +1,6 @@
 [project]
 name = "partiqledtr"
-version = "0.1.0"
+version = "0.2.0"
 description = "Particle decay tree reconstruction with quantum Fourier models"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
@@ -9,10 +9,10 @@ dependencies = [
     "optax>=0.2.8",
     "numpy>=2.3",
     "matplotlib>=3.9",
-    "qml-essentials",
-    "phasespace-jax",
-    "jaqsi",
-    "fluksio",
+    "qml-essentials>=0.3.1",
+    "phasespace-jax>=0.1.1",
+    "jaqsi>=0.1.1",
+    "fluksio>=0.1.6",
 ]
 
 gpu = ["jax[cuda12]>=0.11"]
@@ -20,12 +20,6 @@ gpu = ["jax[cuda12]>=0.11"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-[tool.uv.sources]
-phasespace-jax = { git = "https://github.com/cirKITers/phasespace-jax", rev = "9e2954f973fd77cc1dee6a3f901c61753b359b3f"}
-fluksio = { git = "https://git.stroblme.de/Fluksio/app", rev = "dafdcb76c4b4d04bc3f217c46228a5bcb3f63c40", subdirectory = "backend" }
-qml-essentials = { git = "https://github.com/cirKITers/qml-essentials", rev = "69f02480c7183a9d626510c5df5ead91c3591909" }
-jaqsi = { git = "https://github.com/cirKITers/jaqsi", rev = "6dff0eca76cd5e2c9d7a240dce13d2d4634ef87d" }
 
 [dependency-groups]
 dev = ["ruff>=0.12", "ty", "pytest>=8"]

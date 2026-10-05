@@ -22,12 +22,9 @@ def node2edge(h: jax.Array) -> jax.Array:
 
 
 def edge2node(edges: jax.Array, edge_mask: jax.Array) -> jax.Array:
-    """Mean-aggregate the edges incident to each node.
+    """Mean-aggregate edges over real neighbours.
 
-    The mean runs over real neighbours only and divides by the true degree, not by
-    ``L``: padded columns contribute nothing and padded rows aggregate to zero. A node
-    with no real neighbour (a padded row, or a one-particle event) divides by one
-    instead of by zero.
+    Use each node's true degree; return zero for nodes without neighbours.
 
     Args:
         edges: Edge representations of shape ``(B, L, L, d)``.
@@ -119,15 +116,10 @@ class _Block(nnx.Module):
 
 
 class LCAGGNN(nnx.Module):
-    """Message-passing LCAG predictor with alternating node and edge updates.
+    """Predict symmetric LCAG logits with alternating node and edge updates.
 
-    Node representations become edges by pairwise concatenation and edges become nodes
-    by a masked mean over real neighbours, so the model is permutation-equivariant in
-    the particle axis and invariant to whatever sits in the padded rows. The output is
-    symmetrised architecturally because the LCAG is symmetric by construction.
-
-    The parameter-matched and unconstrained variants are two values of ``dim``, not
-    two classes.
+    Masked neighbour means prevent padded features from affecting valid logits.
+    Shared updates make the model equivariant to particle permutations.
 
     Args:
         n_features: Number of per-particle input features ``F``.

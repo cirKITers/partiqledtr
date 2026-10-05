@@ -1,10 +1,11 @@
 # PartiqleDTR
 
 This is a revived version of the initial attempt to tackle the particle **d**ecay **t**ree **r**econstruction problem using a hybrid (quantum-classical) graph neural network architecture.
-See the section below for details concerning the current approach.
+See the [corresponding section](#architecture) below for details concerning the current approach.
 The project builds upon the same foundation as the [BaumBauen](https://github.com/helmholtz-ai-energy/baumbauen) project.
 
-Technology:
+Tech stack:
+>>>>>>> dc98393e64094f4e596f4f4b7c1c28254da72084
 - [qml-essentials](https://github.com/cirKITers/qml-essentials): quantum Fourier models
 - [jaqsi](https://github.com/cirKITers/jaqsi): simulator in JAX
 - [phasespace-jax](https://github.com/cirKITers/phasespace-jax): JAX port of phasespace for decay event generation
@@ -12,27 +13,6 @@ Technology:
 - Flax: neural network modules
 - Optax: optimization and training
 - Fluksio: data pipeline and experiment tracking
-
-## Architecture
-
-![the quantum model, end to end](docs/architecture.svg)
-
-The diagram shows only the quantum arm. The classical `gnn` and `mlp` arms use the
-same features with their own preconditioner and head.
-
-The model uses 4-qubit QFMs as the *edge function* of a message-passing network.
-They share parameters across edges, making the model permutation-equivariant. The
-classical components are particle-local: an elementwise preconditioner, a
-parameter-free masked mean, and a per-node linear map. Cross-particle structure
-therefore comes from the quantum component. Readout uses per-qubit Pauli-Z
-measurements and a shared linear head, avoiding exponential readout size.
-
-The project is organized in three flows: `generate` simulates events, `train` consumes those
-artifacts for each sweep cell, and `characterize` records DLA certificates,
-encoding cells, and the sampler's shape ceiling without a dataset. Fluksio caches
-node results by input, making unchanged stages cheap to rerun. `fit` uses
-`cache=False` because its fingerprint covers only its own source, not the training
-loop it calls.
 
 ## Layout
 
@@ -55,17 +35,15 @@ dev/            one folder per study, plus the engine script
 ├── s4-scaling/         the graph trichotomy at n = 6
 └── s5-trig-nodes/      the node update between message-passing blocks
                         each study has its own data/ results/ figures/ logs/
-docs/           the diagram above (architecture.d2 / .svg)
+docs/           the diagram below (architecture.d2 / .svg)
 tests/          run with `uv run pytest`
 ```
 
 ## Getting started
 
-Run `uv sync`, then start a Fluksio engine with `dev/serve.sh` or add `--local` to
-commands to start one in process. Set `JAX_PLATFORMS=cpu` for the engine and all
-scripts: these small arrays run faster on CPU, and engine workers contend for a
-CUDA device. Pass `--sync partiqledtr` to every `fluksio run` so syncing skips the
-vendored `reference/` checkouts. Use `--no-cache` to force a stage to rerun.
+Run `uv sync`, then start a Fluksio engine with `dev/serve.sh` or add `--local` to commands to start one in process.
+Set `JAX_PLATFORMS=cpu` for the engine and all scripts: these small arrays run faster on CPU, and engine workers contend for a CUDA device.
+Pass `--sync partiqledtr` to every `fluksio run` so syncing skips the vendored `reference/` checkouts. Use `--no-cache` to force a stage to rerun.
 
 **1. Generate a dataset.** By default, this generates 1,000 events for each of
 10 topologies in each of three topology groups (30 topologies total):
@@ -110,10 +88,8 @@ Select arms through flow inputs; `partiqledtr/pipeline.py` defines their default
 | `enc_reupload` | `diagonal`, `cyclic` -- which features reach which qubit |
 | `dim`, `n_blocks` | ints -- GNN width/depth; use for parameter matching |
 
-**3. Sweep.** Each ablation cell runs the `train` flow. With `--fluksio`, study
-drivers submit cells through the engine, recording a run ID, commit stamp,
-parameter digest, and streamed metrics. The s2 driver runs each cell at several
-seeds, limits concurrent runs, and writes one JSON file per arm:
+**3. Sweep.** Each ablation cell runs the `train` flow. With `--fluksio`, study drivers submit cells through the engine, recording a run ID, commit stamp, parameter digest, and streamed metrics. 
+The s2 driver runs each cell at several seeds, limits concurrent runs, and writes one JSON file per arm:
 
 ```sh
 python dev/s2-expressivity/run.py --arm a --fluksio <generate-run-id>
@@ -127,3 +103,21 @@ See `dev/s2-expressivity/README.md` for the full study and
 For other grids, `fluksio sweep train` accepts parameters such as
 `--param ansatz=A,B --param preconditioner=none,mlp`. Pass dataset inputs by
 digest (for example, `--dataset_train sha256:...`) and `dataset_meta` inline.
+
+## Architecture
+
+<img src="docs/architecture.svg" alt="architecture of the quantum model" width="70%">
+
+The diagram shows only the quantum arm at its defaults. 
+The classical `gnn` and `mlp` arms use the same features with their own preconditioner and head.
+
+The model uses 4-qubit QFMs as the *edge function* of a message-passing network (6 qubits with the three-angle `pair_polar_*` angle maps).
+They share parameters across edges, making the model permutation-equivariant. 
+Each of the two blocks runs `n_channels` independently initialised QFMs in parallel.
+The classical components are particle-local: optional whitening, an elementwise preconditioner, a parameter-free masked mean, and a per-node update (linear by default; `node_update` selects a SIREN or ELU MLP).
+Cross-particle structure therefore comes from the quantum component.
+Readout measures `<XX + YY>` on each coupling bond of the ansatz, an observable inside its DLA, and feeds a shared linear head, so readout size grows with the bond count rather than exponentially.
+
+The project is organized in three flows: `generate` simulates events, `train` consumes those artifacts for each sweep cell, and `characterize` records DLA certificates, encoding cells, and the sampler's shape ceiling without a dataset.
+Fluksio caches node results by input, making unchanged stages cheap to rerun.
+`fit` uses `cache=False` because its fingerprint covers only its own source, not the training loop it calls.

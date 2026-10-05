@@ -1,22 +1,7 @@
-"""Fixed isotropic whitening of the encoded input distribution.
+"""Fit a fixed Haar rotation to the training split's four-vectors.
 
-The unflattening construction: draw one rotation ``Q ~ Haar(SO(4))``, hold it fixed
-across the whole dataset, and read the pair-polar angles of the rotated
-four-vectors. Rotational invariance in each coordinate plane makes the resulting
-angles close to uniform, which is what lifts the g-purity of the encoded product
-state off the floor-free ansatz's clustered regime.
-
-A drawn ``Q`` is *accepted* only if the dataset-mean off-diagonal g-purity it
-produces reaches half the iid-uniform mean,
-
-    mean_i P_g(rho(phi(Q x_i)))  >=  mu_n / 2,
-
-which Markov's inequality guarantees with probability at least about 1/5, so
-rejection sampling terminates in a handful of draws. The test costs one rotation
-of the sample plus an O(n) purity evaluation per row.
-
-Fitted on the **training split only**: the whitening is part of the model, and
-fitting it on data the model is later evaluated on would leak.
+A rotation is accepted when its mean encoded-state purity reaches half the
+uniform-prior mean. The fitted rotation is held fixed across all splits.
 """
 
 from __future__ import annotations

@@ -1,30 +1,9 @@
-"""The graph trichotomy at ``n = 6`` on a kinematics-informed chart.
+"""Run the six-qubit cycle, ladder, and odd-chord scaling grid.
 
-Three graph arms over the same intra-particle chains -- the even cycle (poly
-floor-free), the 3-rung ladder (encoded-universal floor-free) and the odd-chord
-control (floored) -- crossed with {none, mlp}, at the configuration of s3's full
-grid (K=4, ``lr_qfm=1e-2``). The clustered ``legacy`` axis is dropped from this
-study (user decision 2026-08-31), so the annihilation prediction is deferred; what
-this grid tests is the certificate-range, hardness and specificity predictions
-(predictions 1, 3, 4 in the README) with the preconditioner axis kept for the
-distribution effect.
+``--encodings`` prices three-angle charts before training. ``--fluksio`` runs
+the grid on registered datasets; ``--report`` summarises results.
 
-The third per-particle angle is the chart the ``--encodings`` block picks: the
-three ``pair_polar_*`` candidates are priced in g-purity on real kinematics
-*before any training*, and the grid runs the chart whose induced angle law sits
-at or above ``mu_n`` on the floor-free arms (the same no-training gate as s1).
-
-Runs against generate run ``1787760161002-8bde9189`` -- the same data as s2/s3,
-deliberately, so the register and chart are the only things that moved between
-the studies. ``--fluksio`` submits every cell as a versioned run of the ``train``
-flow; without it the cells run in process on the splits
-``dev/s2-expressivity/data`` exported from that run, which is the sandbox path.
-
-    python dev/s4-scaling/run.py --encodings   # price the three charts, no training
-    python dev/s4-scaling/run.py --gate        # one worst-case cell, cost projection
-    python dev/s4-scaling/run.py --import-inprocess  # seeds 0-2, run in process
-    python dev/s4-scaling/run.py --fluksio     # the grid (6 cells x 5 seeds), versioned
-    python dev/s4-scaling/run.py --report      # tables + correlations
+Usage: ``python dev/s4-scaling/run.py [--encodings | --fluksio | --report]``.
 """
 
 from __future__ import annotations
@@ -45,6 +24,8 @@ OUT = STUDY / "results"
 #: The pinned generate run `DATA` was exported from; `--fluksio` resolves the
 #: dataset artifacts from it.
 GENERATE_RUN = "1787760161002-8bde9189"
+#: Dataset seed -> generate run id, shared with s3.
+DATASETS = STUDY.parent / "datasets.json"
 
 #: The day the in-process smoke seeds landed. Their records carry durations but no
 #: timestamps, so the import is stamped with the day.
@@ -221,6 +202,17 @@ def _trace(client: Any, run_id: str) -> list[dict[str, float]]:
     return [{key: series[key][i] for key in series} for i in range(length)]
 
 
+def datasets() -> dict[int, str]:
+    """The registry: dataset seed -> generate run id, the pinned run alone if absent."""
+    if not DATASETS.exists():
+        return {0: GENERATE_RUN}
+    return {int(seed): run for seed, run in json.loads(DATASETS.read_text()).items()}
+
+
+def _key(record: dict[str, Any]) -> str:
+    return json.dumps({**record["cell"], "dataset": record.get("dataset", 0)}, sort_keys=True)
+
+
 def _dataset(client: Any, dataset: str) -> dict[str, Any]:
     """The dataset inputs of the ``train`` flow, as the generate run recorded them."""
     result = client.run(dataset).get("result") or {}
@@ -234,7 +226,6 @@ def _dataset(client: Any, dataset: str) -> dict[str, Any]:
 def run_fluksio(
     block: list[dict[str, Any]],
     filename: str,
-    dataset: str,
     *,
     seeds: int,
     jobs: int,
@@ -243,44 +234,47 @@ def run_fluksio(
 ) -> list[dict[str, Any]]:
     """Run a block through the engine: every cell one versioned run.
 
-    The s5 pattern: artifacts resolved from the pinned generate run, ``jobs``
-    submissions in flight, records appended to the same JSON shape the
-    in-process path writes, with the trace rebuilt from the streamed metrics.
+    The s5 pattern: artifacts resolved from each registry dataset's generate
+    run, ``jobs`` submissions in flight, records appended to the same JSON shape
+    the in-process path writes plus their dataset, with the trace rebuilt from
+    the streamed metrics. Seed-major, so a stopped grid stays balanced.
     """
     import time as clock
 
     from fluksio.sdk.client import Client
 
     client = Client()
-    data = _dataset(client, dataset)
+    data = {seed: _dataset(client, run) for seed, run in datasets().items()}
 
     path = out / filename
     done: list[dict[str, Any]] = json.loads(path.read_text()) if path.exists() else []
-    seen = {json.dumps(r["cell"], sort_keys=True) for r in done if "error" not in r}
+    seen = {_key(r) for r in done if "error" not in r}
     queue = [
-        {**cell, "seed": seed}
-        for cell in block
+        (dataset, {**cell, "seed": seed})
         for seed in range(seeds)
-        if json.dumps({**cell, "seed": seed}, sort_keys=True) not in seen
+        for dataset in sorted(data)
+        for cell in block
+        if _key({"dataset": dataset, "cell": {**cell, "seed": seed}}) not in seen
     ]
-    total = len(done) + len(queue)
+    total = len(seen) + len(queue)
     print(f"s4: {len(queue)} to submit ({len(seen)} already done), {jobs} in flight", flush=True)
 
-    inflight: list[tuple[dict[str, Any], Any]] = []
+    inflight: list[tuple[int, dict[str, Any], Any]] = []
     while queue or inflight:
         while queue and len(inflight) < jobs:
-            settings = queue.pop(0)
-            params = {**data, **settings, "epochs": epochs}
+            dataset, settings = queue.pop(0)
+            params = {**data[dataset], **settings, "epochs": epochs}
             handle = client.submit("train", params, seed=settings["seed"])
-            inflight.append((settings, handle))
+            inflight.append((dataset, settings, handle))
         clock.sleep(10.0)
-        for settings, handle in list(inflight):
+        for dataset, settings, handle in list(inflight):
             if not handle.refresh().done:
                 continue
-            inflight.remove((settings, handle))
+            inflight.remove((dataset, settings, handle))
             payload = handle.result or {}
             done.append(
                 {
+                    "dataset": dataset,
                     "cell": settings,
                     "run": handle.id,
                     "final_metrics": payload.get("final_metrics"),
@@ -292,23 +286,24 @@ def run_fluksio(
                     "trace": _trace(client, handle.id),
                 }
                 if handle.status == "ok"
-                else {"cell": settings, "run": handle.id, "error": handle.status}
+                else {
+                    "dataset": dataset,
+                    "cell": settings,
+                    "run": handle.id,
+                    "error": handle.status,
+                }
             )
             path.write_text(json.dumps(done, indent=1))
-            print(f"  [{len(done)}/{total}] {handle.status} {label(settings)}", flush=True)
+            ok = sum("error" not in r for r in done)
+            print(f"  [{ok}/{total}] {handle.status} d{dataset} {label(settings)}", flush=True)
     return done
 
 
 def import_inprocess(filename: str, dataset: str, *, out: Path) -> None:
-    """Record the in-process seeds of ``filename`` in the engine.
+    """Import unversioned in-process results as finished engine runs.
 
-    They ran through :func:`one_cell`, unversioned, on qml-essentials' built-in
-    simulator. fluksio's import stores each as a finished ``train`` run with
-    ``cause="import"`` and no commit or code digest -- versioned as what it is,
-    not as a run of today's code -- with its params completed the way a
-    submission would be, so an imported cell and a native one share a params
-    digest. Re-importing is a no-op (keyed by ``external_id``); the run id is
-    written back into the record.
+    Imported records retain their source identity and parameter digest. Repeated
+    imports use the same external ID.
     """
     from datetime import datetime
 
@@ -355,13 +350,9 @@ def label(cell: dict[str, Any]) -> str:
 
 
 def correlations(trace: list[dict[str, float]]) -> dict[str, float | None]:
-    """Within-run association of the g-purity and validation-loss series.
+    """Compute raw and first-differenced purity-loss correlations per run.
 
-    Both raw and first-differenced: two monotone series correlate trivially, so
-    the de-trended number is the honest one and the headline. ``None`` where a
-    series is constant (the ``none`` control) -- there is nothing to correlate.
-    On the favourable chart the expectation mirrors the ``pair_polar`` rows of
-    s3's full grid: coupling absent, on floored and floor-free arms alike.
+    Return ``None`` for constant series.
     """
     import numpy as np
     from scipy import stats
@@ -395,6 +386,8 @@ def _stat(values: list[float | None], places: int = 2) -> str:
 
 def report(out: Path) -> None:
     """One row per cell: task numbers, the purity trajectory, and the correlations."""
+    import numpy as np
+
     from partiqledtr.analysis import uniform_prior_mean
 
     rows: dict[str, list[dict[str, Any]]] = {}
@@ -406,10 +399,10 @@ def report(out: Path) -> None:
                 rows.setdefault(label(record["cell"]), []).append(record)
 
     print(
-        "\n| cell | n | train loss | acc known | perfect | purity/mu_n | var pred "
-        "| r(dP,dL) pearson |"
+        "\n| cell | n | train loss | acc known | sd over datasets | perfect | purity/mu_n "
+        "| var pred | r(dP,dL) pearson |"
     )
-    print("| --- | --- | --- | --- | --- | --- | --- | --- |")
+    print("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
     for name, group in rows.items():
         final = [r["final_metrics"] for r in group]
         known = [r["test_metrics"]["known"] for r in group]
@@ -421,10 +414,16 @@ def report(out: Path) -> None:
         # The variance-law scale of prediction 1: 2 P_g / dim g at the mean end purity.
         dim_g = group[0]["dla_report"]["dim_g"]
         var = 2.0 * end * mu / dim_g
+        by_data: dict[int, list[float]] = {}
+        for r, t in zip(group, known, strict=True):
+            by_data.setdefault(r.get("dataset", 0), []).append(t["accuracy"])
+        means = [sum(v) / len(v) for v in by_data.values()]
+        spread = f"{np.std(means):.3f}" if len(means) > 1 else "--"
         print(
             f"| {name} | {len(group)} "
             f"| {sum(f['train_loss'] for f in final) / len(final):.4f} "
             f"| {sum(t['accuracy'] for t in known) / len(known):.3f} "
+            f"| {spread} "
             f"| {sum(t['perfect'] for t in known) / len(known):.3f} "
             f"| {start:.2f} -> {end:.2f} "
             f"| {var:.1e} "
@@ -445,15 +444,13 @@ def main() -> None:
     parser.add_argument("--gate", action="store_true", help="one worst-case cell, cost projection")
     parser.add_argument(
         "--fluksio",
-        nargs="?",
-        const=GENERATE_RUN,
-        metavar="GENERATE_RUN",
-        help="submit through the engine as versioned runs (default: the pinned run)",
+        action="store_true",
+        help="submit through the engine as versioned runs, on every registry dataset",
     )
     parser.add_argument(
         "--import-inprocess",
         action="store_true",
-        help="record the in-process seeds in the engine, against --fluksio's run",
+        help="record the in-process seeds in the engine, against the pinned run",
     )
     parser.add_argument("--report", action="store_true")
     args = parser.parse_args()
@@ -465,7 +462,7 @@ def main() -> None:
         report(args.out)
         return
     if args.import_inprocess:
-        import_inprocess("smoke.json", args.fluksio or GENERATE_RUN, out=args.out)
+        import_inprocess("smoke.json", GENERATE_RUN, out=args.out)
         return
     if args.encodings:
         table = price_encodings()
@@ -488,7 +485,7 @@ def main() -> None:
         return
     common = {"seeds": args.seeds, "jobs": args.jobs, "epochs": args.epochs, "out": args.out}
     if args.fluksio:
-        run_fluksio(cells(), "smoke.json", args.fluksio, **common)
+        run_fluksio(cells(), "smoke.json", **common)
     else:
         run(cells(), "smoke.json", **common)
     report(args.out)

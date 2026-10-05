@@ -1,17 +1,8 @@
-"""Training loop, checkpointing and the training flow's nodes.
+"""Train and evaluate LCAG models and serialise their checkpoints.
 
-The loop itself lives in :func:`train_model`, a plain generator over numpy arrays:
-Fluksio's ``save_artifact`` raises outside a running node, so keeping the pure part
-separate is what makes the whole thing testable without an engine (the same split
-:mod:`partiqledtr.data.dataset` uses for generation).
-
-Loss is class-weighted cross-entropy with the ``-1`` padding class ignored;
-checkpoints are ``np.savez`` state dictionaries rather than orbax (one artifact, no
-extra dependency), carrying the settings needed to rebuild the model beside its
-parameters so :func:`evaluate` needs nothing but the artifact.
-
-Everything here is classical, so the train and eval steps are wrapped in
-:func:`flax.nnx.jit`. The quantum arm replaces the model, not this file.
+The plain ``train_model`` generator supports in-process tests and Fluksio nodes.
+Loss ignores ``-1`` labels. NPZ checkpoints contain parameters and the model
+configuration needed for evaluation.
 """
 
 from __future__ import annotations
@@ -72,12 +63,10 @@ _PURITY_SEED = 987654321
 
 
 def lcag_loss(logits: jax.Array, labels: jax.Array, weights: jax.Array) -> jax.Array:
-    """Class-weighted softmax cross-entropy over the scored LCAG cells.
+    """Compute class-weighted cross-entropy over labels other than ``-1``.
 
-    A cell is scored iff its label is not ``-1``; masked cells contribute exactly
-    zero, both to the value and to the gradient. The labels are clamped to a valid
-    class *before* they reach optax, because ``-1`` is out of range there and would
-    silently index the last class (or produce a NaN under ``jax_debug_nans``).
+    Clamp ignored labels before passing them to Optax; they contribute no loss or
+    gradient.
 
     Args:
         logits: Unnormalised log-probabilities of shape ``(..., C)``.
@@ -140,11 +129,9 @@ def build_model(
     node_omega: float = 1.0,
     whitening: Any = None,
 ) -> nnx.Module:
-    """Construct a model and its optional preconditioner from the registry strings.
+    """Build a registered model with an optional preconditioner.
 
-    Optional keywords are forwarded only to classes whose ``__init__`` accepts
-    them, so the registry stays the single extension point: ``n_blocks`` reaches
-    the GNN, and ``ansatz``/``n_layers``/``whitening`` reach the quantum arm.
+    Forward model-specific options only to constructors that accept them.
 
     Args:
         model: Key into :data:`partiqledtr.models.MODELS`.
@@ -235,13 +222,7 @@ def build_model(
 
 
 def jsonable(value: Any) -> Any:
-    """Replace every non-finite float with ``None``, however deeply it sits.
-
-    JSON cannot spell NaN or infinity, and Fluksio's ports reject both rather than
-    letting one leave the engine as a response nobody can parse. A metric over an
-    empty subset is legitimately undefined, though -- an ``unknown`` split with no
-    events, say -- so it travels as ``None``, which says the same thing and does
-    survive the wire.
+    """Replace non-finite floats with ``None`` throughout a JSON-shaped value.
 
     Args:
         value: Any json-shaped structure.
@@ -522,17 +503,10 @@ def train_model(
     whitening: Any = None,
     n_purity_events: int = 64,
 ) -> Generator[dict[str, float], None, tuple[nnx.Module, dict[str, Any]]]:
-    """Fit a model on the training split, reporting validation metrics per epoch.
+    """Fit a model and yield validation metrics after each epoch.
 
-    Class weights are fitted on the training labels; class 0 is never a target on this
-    dataset (any two leaves share at least the root) and so gets weight 0.
-
-    When the model exposes a ``g_purity`` method -- the quantum arm does -- the mean
-    g-purity of its encoded states is measured on a fixed subset of validation
-    events every epoch and streamed alongside the losses. That is the preconditioner
-    study's observable: read it against
-    :func:`partiqledtr.analysis.offdiag_uniform_mean` to see the rescue dynamics
-    the unflattening theory predicts.
+    Fit class weights on training labels. For models exposing ``g_purity``, track
+    encoded-state purity on a fixed validation subset.
 
     Args:
         train: Training split arrays.
@@ -919,12 +893,7 @@ def evaluate(
     dataset_test: dict[str, Any],
     dataset_meta: dict[str, Any],
 ) -> dict[str, Any]:
-    """Score a checkpoint on the test split, overall and by topology familiarity.
-
-    The test split mixes topologies the model trained on (group 0) with topologies it
-    has never seen (groups 1 and 2), so the ``known``/``unknown`` pair is the
-    generalisation probe. Reporting only the overall number would average the two
-    together and hide the answer.
+    """Score a checkpoint overall and on known and unknown test topologies.
 
     Args:
         checkpoint: Checkpoint artifact reference from :func:`fit`.

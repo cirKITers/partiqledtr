@@ -43,4 +43,14 @@ python dev/s3-readout-channel/run.py --report
 python dev/s3-readout-channel/figures.py
 ```
 
+Dataset repeat, from the repository root:
+
+```sh
+RUNS=4 DEVICES=4 MAX_RSS=2048 dev/serve.sh
+python dev/s3-readout-channel/run.py --generate
+python dev/s3-readout-channel/run.py --fluksio --jobs 4
+python dev/s3-readout-channel/run.py --fluksio --report
+python dev/s3-readout-channel/summary.py --datasets
+```
+
 `results/` and `figures/` are gitignored.

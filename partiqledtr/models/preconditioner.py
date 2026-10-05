@@ -6,21 +6,10 @@ from flax import nnx
 
 
 class ElementwiseResidualMLP(nnx.Module):
-    """Per-feature residual MLP ``1 -> hidden -> 1`` applied to the trailing axis.
+    """Apply an independent residual MLP to each feature.
 
-    ``phi(x)_f = x_f + sum_h w2[f, h] * tanh(w1[f, h] * x_f + b1[f, h])``
-
-    Two properties are load-bearing for the preconditioner study and hold by
-    construction, for any parameter values, rather than by convention:
-
-    1. **Features cannot mix.** Every parameter carries a leading feature axis and is
-       contracted with an einsum that never sums over it, so ``d phi_f / d x_g == 0``
-       exactly for ``f != g``. The preconditioner may only reshape per-feature marginals;
-       cross-feature and cross-particle structure has to come from the model it feeds
-       (e.g. the QFM constellation).
-    2. **It starts as the identity.** ``w2`` is zero-initialised, so ``phi(x) == x``
-       bit-for-bit at epoch 0 and an arm with a preconditioner starts from exactly the same
-       function as the arm without one.
+    Feature axes never mix. A zero-initialised output layer makes the module an
+    exact identity at initialisation.
 
     Args:
         n_features: Size of the trailing feature axis ``F``.

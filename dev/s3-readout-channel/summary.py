@@ -1,17 +1,9 @@
-"""The one-figure summary of the s3 full grid.
+"""Build the s3 summary CSV and four-panel figure.
 
-Four panels, one claim each: (a) the preconditioner rescues the clustered
-distribution to the uniform-prior band; (b) the loss descends alongside; (c) the
-per-epoch purity-loss coupling exists exactly on the floor-free x clustered
-cells and not on the floored control; (d) the task effect follows the same
-pattern. Floor-free arms (`XY_Ring`, `XY_Brickwork`) are pooled -- they behave
-identically here and the per-arm split stays in the CSV.
+The panels show purity, loss, their per-epoch association, and task accuracy.
+``--plot`` redraws from the existing CSV; ``--datasets`` uses versioned runs.
 
-The figure is drawn from ``results/summary.csv`` alone, so the plot can be
-restyled or rebuilt without touching the run records:
-
-    python dev/s3-readout-channel/summary.py          # rebuild csv, then figure
-    python dev/s3-readout-channel/summary.py --plot   # figure from existing csv
+Usage: ``python dev/s3-readout-channel/summary.py [--plot | --datasets]``.
 """
 
 from __future__ import annotations
@@ -25,7 +17,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 STUDY = Path(__file__).resolve().parent
-CSV = STUDY / "results" / "summary.csv"
+#: Where full.json is read and summary.csv written; ``--datasets`` points it at
+#: the dataset repeat of ``run.py --fluksio``.
+RESULTS = STUDY / "results"
 FLOORED = "XY_AllPairs"
 
 #: Condition -> colour. Clustered (legacy p*E*pi) is the barren input law, the
@@ -42,7 +36,9 @@ def export() -> None:
     from scipy import stats
 
     records = [
-        r for r in json.loads((STUDY / "results" / "full.json").read_text()) if "error" not in r
+        r
+        for r in json.loads((RESULTS / "full.json").read_text())
+        if "error" not in r and r["cell"].get("model", "qfm") == "qfm"
     ]
     from partiqledtr.analysis import uniform_prior_mean
 
@@ -58,6 +54,7 @@ def export() -> None:
             else ""
         )
         base = {
+            "dataset": record.get("dataset", 0),
             "ansatz": cell.get("ansatz", "XY_Ring"),
             "algebra": "floored" if cell.get("ansatz") == FLOORED else "floor-free",
             "input_law": (
@@ -84,28 +81,34 @@ def export() -> None:
             rows.append(
                 {
                     **base,
-                    "epoch": t["epoch"] + 1,
+                    "epoch": int(t["epoch"]) + 1,
                     "g_purity_over_mu": f"{t['g_purity'] / mu:.5f}",
                     "val_loss": f"{t['val_loss']:.5f}",
                 }
             )
-    with CSV.open("w", newline="") as sink:
+    with (RESULTS / "summary.csv").open("w", newline="") as sink:
         writer = csv.DictWriter(sink, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
-    print(f"wrote {CSV} ({len(rows)} rows)")
+    print(f"wrote {RESULTS / 'summary.csv'} ({len(rows)} rows)")
 
 
 def _load() -> list[dict[str, str]]:
-    with CSV.open() as source:
+    with (RESULTS / "summary.csv").open() as source:
         return list(csv.DictReader(source))
 
 
 def _runs(rows: list[dict[str, str]]) -> dict[tuple, list[dict[str, str]]]:
-    """Group rows by run (ansatz, input law, preconditioner, seed)."""
+    """Group rows by run (dataset, ansatz, input law, preconditioner, seed)."""
     runs: dict[tuple, list[dict[str, str]]] = {}
     for row in rows:
-        key = (row["ansatz"], row["input_law"], row["preconditioner"], row["seed"])
+        key = (
+            row.get("dataset", "0"),
+            row["ansatz"],
+            row["input_law"],
+            row["preconditioner"],
+            row["seed"],
+        )
         runs.setdefault(key, []).append(row)
     return runs
 
@@ -227,14 +230,19 @@ def plot() -> None:
         ax.spines[["top", "right"]].set_visible(False)
     fig.tight_layout()
     (STUDY / "figures").mkdir(exist_ok=True)
+    name = "summary" if RESULTS == STUDY / "results" else "summary_datasets"
     for suffix in ("png", "pdf"):
-        fig.savefig(STUDY / "figures" / f"summary.{suffix}", dpi=200)
-    print(f"wrote {STUDY / 'figures' / 'summary.png'} (and .pdf)")
+        fig.savefig(STUDY / "figures" / f"{name}.{suffix}", dpi=200)
+    print(f"wrote {STUDY / 'figures' / name}.png (and .pdf)")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plot", action="store_true", help="skip the csv rebuild")
-    if not parser.parse_args().plot:
+    parser.add_argument("--datasets", action="store_true", help="use results/datasets/")
+    args = parser.parse_args()
+    if args.datasets:
+        RESULTS = RESULTS / "datasets"
+    if not args.plot:
         export()
     plot()

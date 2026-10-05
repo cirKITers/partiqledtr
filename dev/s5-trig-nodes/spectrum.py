@@ -1,23 +1,9 @@
-"""The task-spectrum probe: how much of the edge decision is low-degree trig?
+"""Measure how well low-degree trigonometric features predict edge classes.
 
-The spectral-alignment question (does the model's frequency support cover the
-task's?), asked as a measurement (no training). Per sampled real edge, the LCA
-class is regressed on integer-frequency trigonometric features
-``cos/sin(w . theta)`` of the six encoded angles (`pair_polar_boost`, the gated
-s4 chart), by cumulative total degree ``|w|_1``.
-The ``L = 2`` QFM reaches per-feature frequencies ``|w_f| <= 2``, so comparing
-``k_max = 2`` against ``k_max = 4`` at the same degree says whether the model's
-frequency box is spectrally sufficient for the *single-edge* part of the task --
-message passing sees more than one edge, so these numbers bound the edge function
-alone, not the model.
+Fit ridge regressions on encoded-angle Fourier features and pair-invariant
+powers. Results describe the single-edge decision, not message passing.
 
-A second, one-line probe fits the same ridge on powers of the pair invariant
-``m_ij`` (the physically decisive quantity for the LCA level): if that alone
-matches the trig probe, the information is in the invariant, not in richer
-spectra -- the open question of loading ``m_ij`` in-algebra (as the angle of the
-cross-particle XY bonds), in empirical form.
-
-    python dev/s5-trig-nodes/spectrum.py            # prints the table, writes results/spectrum.json
+Usage: ``python dev/s5-trig-nodes/spectrum.py``.
 """
 
 from __future__ import annotations

@@ -1,24 +1,9 @@
-"""Kinematic features, normalisation and padding.
+"""Encode, normalise, and pad particle four-vectors.
 
-Four-vectors are laid out ``[px, py, pz, E]``, the layout phasespace returns (verified
-empirically). Three encodings are supported and all are stored per split:
-``"angles"`` gives ``(theta, phi, E)``, the natively periodic direction features the
-QFM encoding is built for, ``"cartesian"`` keeps ``(px, py, pz, E)`` for the ablation and
-for the quantum arm's polar map, and ``"legacy"`` keeps the four-vector but scales it the
-way partiqlegan did -- momenta into ``[-1, 1]``, energy into ``[0, 1]`` -- so that
-:func:`partiqledtr.models.qfm.legacy_angles` reproduces that work's ``p * E * pi`` product
-encoding, whose factors then both live in the unit interval and whose product therefore
-concentrates near zero. ``"legacy"`` is the *clustered control arm*, not a
-candidate encoding.
-
-Conventions decided here:
-
-* a zero-momentum row maps to ``theta = phi = 0`` rather than a NaN, so padded rows stay
-  at the origin of feature space and survive the round trip through
-  :func:`to_cartesian`,
-* normalisation is scale-only and computed over rows with ``E > 0``, i.e. padded rows
-  never enter a scale (a shift would let energies go negative),
-* :func:`pad_events` is the single owner of the ``-1`` ignore convention.
+Input order is ``[px, py, pz, E]``. The ``angles``, ``cartesian``, and
+``legacy`` encodings are stored per split. Scale-only normalisation excludes
+padded rows and preserves non-negative energy; padding uses the ``-1`` label
+sentinel.
 """
 
 import numpy as np
@@ -91,18 +76,10 @@ def to_cartesian(features: np.ndarray) -> np.ndarray:
 
 
 def normalization_scales(train_features: np.ndarray, encoding: str) -> dict[str, float]:
-    """Compute the scale-only normalisation constants of a training split.
+    """Fit feature scales on unpadded training rows.
 
-    Scales are means over unpadded rows (``E > 0``); the mean is preferred over the
-    maximum because a single hard event would otherwise set the scale. Angles get no scale
-    at all: they are already ``O(1)`` and scaling them would break the periodicity the QFM
-    encoding relies on.
-
-    ``"legacy"`` is the exception and uses the **maximum** instead, because its whole
-    point is to reproduce partiqlegan's bounded normalisation: momenta into ``[-1, 1]``
-    and energy into ``[0, 1]``, so that a product of the two concentrates near zero.
-    Using the mean there would leave the factors ``O(1)`` rather than ``<= 1`` and the
-    arm would not be clustered at all.
+    ``angles`` remain unscaled. Other encodings use mean scales, except
+    ``legacy``, which uses maxima to keep momenta and energy within unit bounds.
 
     Args:
         train_features: ``(..., F)`` features of the *training* split only.
@@ -178,11 +155,9 @@ def apply_normalization(
 def pad_events(
     features: np.ndarray, lcag: np.ndarray, max_fsps: int
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Pad events and labels to a fixed leaf count.
+    """Pad features with zero and ignored labels with ``-1``.
 
-    The single place where the ``-1`` ignore convention is applied: padded feature
-    rows are ``0.0``, padded label entries are ``-1``, and the label diagonal is ``-1``
-    throughout, padded or not. One artifact shape means one jitted training step.
+    The label diagonal also uses ``-1``.
 
     Args:
         features: ``(N, L, F)`` features.

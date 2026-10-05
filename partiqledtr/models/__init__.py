@@ -1,23 +1,8 @@
-"""LCAG models and the registries the training node selects them by.
+"""Register LCAG models and preconditioners.
 
-Call convention, satisfied by every entry of :data:`MODELS` including the quantum
-one:
-
-    A model is an ``nnx.Module`` with
-    ``__call__(features: (B, L, F), mask: (B, L) bool) -> logits: (B, L, L, C)``,
-    symmetric in the two ``L`` axes.
-
-``B`` is the batch size, ``L`` the padded number of final-state particles, ``F`` the
-number of per-particle features and ``C`` the number of LCAG classes. ``mask`` is True
-on real particles; whatever sits in the padded rows must not reach the logits of the
-valid block. A preconditioner is an ``nnx.Module`` mapping ``(..., F) -> (..., F)``, passed
-to a model as its ``preconditioner`` argument.
-
-There is no abstract base class: the convention plus the two registries is the whole
-interface.
-
-:func:`n_params` counts a model and :func:`matched_dim` inverts that count, which is
-how the parameter-matched classical arm of a study is chosen.
+Models map ``(B, L, F)`` features and a ``(B, L)`` validity mask to symmetric
+``(B, L, L, C)`` logits. Padded features cannot affect valid logits.
+Preconditioners map ``(..., F)`` features to the same shape.
 """
 
 import jax
@@ -48,10 +33,7 @@ def n_params(module: nnx.Module) -> int:
 
 
 def matched_dim(target: int, build, *, max_dim: int = 256, **kwargs) -> int:
-    """Return the ``dim`` whose parameter count sits closest to ``target``.
-
-    A hand-picked "matched" width is easily off by an order of magnitude. This makes
-    the match computable, so the matched arm of a study is derived rather than asserted.
+    """Find the model width whose parameter count is closest to ``target``.
 
     Args:
         target: Parameter count to match, e.g. that of the quantum arm.

@@ -8,17 +8,9 @@ from partiqledtr.models.gnn import node2edge
 
 
 class MLPBaseline(nnx.Module):
-    """The "MLP does everything" control: preconditioner plus a linear head.
+    """Predict symmetric pair logits with a linear head on preconditioned features.
 
-    Each entry is a linear readout of its own two particles' preconditioned features --
-    ``logits[i, j] = W @ concat(phi(x_i), phi(x_j)) + b`` -- with no aggregation over
-    the other particles and no nonlinearity beyond the preconditioner itself. It is the
-    quantum model with everything quantum deleted, which is what makes it the right
-    control: if it already solves the task, nothing the rest of the architecture does
-    can be credited.
-
-    The head is deliberately linear, so this model is weak by construction. Its job is
-    to establish the floor, not to compete.
+    Each pair uses only its two particles, without neighbour aggregation.
 
     Args:
         n_features: Number of per-particle input features ``F``.

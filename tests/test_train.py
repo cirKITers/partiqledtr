@@ -356,13 +356,10 @@ def test_the_whitening_arm_is_opt_in():
 
 
 def test_node_payloads_are_port_legal():
-    """Whatever the nodes publish must satisfy the declared ports.
+    """Check streamed node payloads satisfy Fluksio port types.
 
-    Fluksio rejects a non-finite float on any port rather than letting one leave
-    the engine as unparseable JSON, and it does so however deeply the value sits.
-    Metrics over an empty subset are legitimately undefined, so they have to
-    travel as None (json) or be omitted (float) -- checked here against the real
-    port specs, because the failure would otherwise only appear mid-run.
+    Undefined empty-subset metrics must travel as ``None`` or be omitted, since
+    ports reject non-finite floats.
     """
     from fluksio.flow.messages import DType, MessageSpec
 
@@ -387,12 +384,9 @@ def test_node_payloads_are_port_legal():
 
 
 def test_preconditioner_does_not_reseed_the_model():
-    """Attaching a preconditioner must add one, not re-initialise everything.
+    """Check attaching a preconditioner preserves all other initial parameters.
 
-    Built from a single rng stream, the preconditioner's own draws shift every later
-    draw, so the raw and learned arms of the preconditioning study would have differed
-    by a full re-initialisation as well as by the preconditioner -- a confound in
-    exactly the comparison the study is about.
+    This keeps raw and learned arms comparable at initialisation.
     """
     common: dict[str, Any] = {"model": "gnn", "n_features": F, "n_classes": C, "dim": 8, "seed": 3}
     plain = build_model(preconditioner="none", **common)
@@ -559,13 +553,10 @@ def test_classical_arm_omits_the_angle_ports():
 
 
 def test_purity_subset_is_drawn_across_the_split_not_sliced_off_it():
-    """The purity observable has to describe the data, not its first topology.
+    """Check the purity subset spans the validation split's topologies.
 
-    Splits are assembled topology by topology, so `val[:n]` is one topology at one
-    multiplicity. Measured that way the g-purity of two different encodings agreed
-    to 1% while they differ by 1.8x across the whole split -- the observable was
-    reporting the sample. The subset stays fixed across arms and seeds, so a purity
-    difference between two cells is still a difference between the cells.
+    A leading slice would sample only its first topology and distort the
+    encoding comparison.
     """
     n_events, n_purity = 400, 64
     # Topology 0 fills the front of the split, as the real assembler leaves it.

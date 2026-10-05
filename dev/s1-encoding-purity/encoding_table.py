@@ -1,10 +1,6 @@
-"""Render the encoding x weight g-purity table of a finished ``generate`` run.
+"""Print the encoding-weight g-purity table from a completed generation run.
 
-The central question of s2's encoding-weight arm, answered without training anything:
-spectral preconditioning is a property of data plus encoding, so if an exponential
-spectrum lifts a collapsed encoding off the floor it has to show here first.
-
-    python dev/s1-encoding-purity/encoding_table.py <generate-run-id>
+Usage: ``python dev/s1-encoding-purity/encoding_table.py <generate-run-id>``.
 """
 
 from __future__ import annotations

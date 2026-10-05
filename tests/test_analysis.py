@@ -341,14 +341,10 @@ def test_arm_certificates_at_the_constellation_size(ansatz, dim_g, d_z, pi_invar
     [("XY_Cycle", 60, 0), ("XY_Ladder", 510, 0), ("XY_OddChord", 1020, 30)],
 )
 def test_phase6_arm_certificates_at_six_qubits(ansatz, dim_g, d_z):
-    """The graph trichotomy at six qubits, measured rather than asserted.
+    """Check the six-qubit cycle, ladder, and odd-chord DLA certificates.
 
-    The even cycle is bipartite and floor-free at a polynomial closure; the
-    ladder's middle rung adds a degree-3 vertex (the manuscript's
-    encoded-universality criterion) while keeping ``d_Z = 0``; the intra-particle
-    chords close odd triangles and the floor returns. One rung toggles hardness,
-    the chords toggle the floor -- and every arm stays invariant under the
-    endpoint swap ``pi = (0 3)(1 4)(2 5)``.
+    The arms respectively probe a polynomial floor-free closure, a larger
+    floor-free closure, and a floored odd-cycle control.
     """
     from partiqledtr.ansaetze import swap_invariant
 
@@ -405,13 +401,7 @@ def test_clustered_angles_collapse_the_floor_free_purity():
 
 @pytest.mark.parametrize("ansatz", ANSAETZE)
 def test_cap_truncates_and_says_so(ansatz):
-    """A cap stops the closure early and marks `dim_g` as a lower bound.
-
-    This is the whole reason `max_dim` exists: Circuit_19 saturates `su(2**n)`, so
-    an uncapped closure enumerates `4**n - 1` words and takes over a minute at
-    n=6. A capped result must be exactly `max_dim` words with `capped` set, so a
-    reader knows not to treat `dim_g` as the true dimension.
-    """
+    """Check that a capped Lie closure marks its dimension as a lower bound."""
     dim_g = int(dla_check(ansatz, n_qubits=4)["dim_g"])
     cap = len(ansatz_generators(ansatz, 4)) + 1
     assert cap < dim_g, "the cap has to bite for this to test anything"
@@ -437,12 +427,7 @@ def test_retired_arms_stay_certifiable():
 
 
 def test_exact_purity_matches_the_closed_form_on_a_product_state():
-    """The two purity routes have to agree where they describe the same state.
-
-    With no ansatz in the way, the encoded state *is* the RY product state, so the
-    closed form and the sum over the DLA basis must coincide -- which is what makes
-    the exact route a check on the closed one rather than a second guess.
-    """
+    """Check exact and closed-form purity agree on the same RY product state."""
     rng = np.random.default_rng(5)
     angles = rng.uniform(0.0, 2.0 * np.pi, size=(6, 4))
     # prod_q RY(theta_q)|0>, built directly: cos(theta/2)|0> + sin(theta/2)|1>.

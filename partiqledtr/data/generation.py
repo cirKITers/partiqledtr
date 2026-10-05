@@ -1,32 +1,8 @@
-"""Phase-space event generation for a sampled decay topology.
+"""Generate unweighted decay events with phasespace-jax.
 
-Uses `phasespace-jax <https://github.com/stroblme/phasespace-jax>`_, a JAX port of
-phasespace, so the project has no TensorFlow dependency and generation runs on the
-same array backend as everything else.
-
-Facts about the phasespace API established by measurement rather than from its
-documentation:
-
-* ``GenParticle.generate`` returns momenta as ``(n_events, 4)`` arrays laid out
-  ``[px, py, pz, E]``.
-* With ``normalize_weights=True`` (the default) the returned weights are already
-  divided by the maximum attainable weight, which is constant across events, so
-  they lie in ``[0, 1]`` and accept-reject against a uniform draw is exact
-  unweighting -- no maximum has to be estimated.
-* Randomness is an explicit JAX key. The same key reproduces a draw exactly, so
-  the accept-reject loop must *split* its key per round; reusing one key would
-  redraw the identical chunk forever.
-* The kinematics run under a scoped ``jax.enable_x64()`` and therefore return
-  **float64** arrays, whatever the calling program's default is. Combining those
-  directly with a float32 JAX array warns and silently truncates, so this module
-  converts to numpy at the boundary and hands back numpy float64. Downstream code
-  never meets a stray float64 JAX array.
-* ``generate`` is jitted with ``n_events`` as a static argument, so every distinct
-  chunk size costs a compilation. Acceptance rates vary by orders of magnitude
-  between topologies -- a decay whose daughters nearly saturate the parent mass
-  has very little phase space -- so the loop draws one pilot chunk to measure the
-  rate, then holds a single derived chunk size for the rest. That is two compiled
-  sizes per topology instead of one per round.
+Four-vectors use ``[px, py, pz, E]`` order. Normalised phase-space weights
+support accept-reject sampling; each draw uses a fresh JAX key. Generated
+arrays cross the backend boundary as NumPy float64 arrays.
 """
 
 from __future__ import annotations
@@ -80,13 +56,9 @@ def generate_events(
     chunk_factor: float = 4.0,
     max_draws: int = 40_000_000,
 ) -> dict[str, np.ndarray]:
-    """Generate unweighted decay events for one topology.
+    """Generate unweighted phase-space events for one topology.
 
-    Events are drawn in chunks and accepted with probability equal to their
-    normalised phase-space weight, so the returned sample follows the phase-space
-    density. Prior work (baumbauen, partiqlegan) discarded the weights and used
-    the raw sample, which biases exactly the angular marginals this project
-    studies.
+    Accept each draw according to its normalised phase-space weight.
 
     Args:
         topology: Nested ``{"name", "mass", "children"}`` dict describing the decay.

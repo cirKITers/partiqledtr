@@ -65,18 +65,10 @@ def test_generation_is_deterministic_and_seed_sensitive():
 
 
 def test_unweighting_reproduces_the_weighted_distribution():
-    """Accepted events must follow the weighted sample, not the raw one.
+    """Check accepted events match the weighted energy distribution.
 
-    A multi-body decay has non-uniform phase-space weights, so the mean energy of
-    a daughter differs between the raw sample and the weight-corrected one. The
-    unweighted sample must agree with the weighted mean and be clearly separated
-    from the raw one -- which is the whole reason for unweighting.
-
-    The tolerance is the sample's own standard error rather than a fixed number.
-    Measured at 100k events: the unweighted mean lands 0.01-0.05 from the weighted
-    one against a 4-sigma bound of 0.097, while the raw sample sits 0.202 away --
-    comfortably outside the 5-sigma bound of 0.121. An earlier fixed tolerance of
-    0.05 was about 1.2 sigma and passed only by luck.
+    The raw sample differs because multi-body phase-space weights vary. Compare
+    means against the sample's standard error.
     """
     from partiqledtr.data.generation import _build_particle, generate_events
 
@@ -94,17 +86,10 @@ def test_unweighting_reproduces_the_weighted_distribution():
 
 
 def test_output_crosses_the_jax_boundary_as_numpy():
-    """`generate_events` must hand back numpy, not phasespace's float64 JAX arrays.
+    """Check generation returns NumPy arrays across the float64 JAX boundary.
 
-    phasespace runs its kinematics under a scoped `jax.enable_x64()` and returns
-    float64 arrays even though the calling program is float32. Combining those
-    directly with a float32 JAX array warns and silently truncates::
-
-        f64 + jnp.zeros(4, jnp.float32)   -> UserWarning, result float32
-
-    Converting through numpy is the clean boundary and is what this function does,
-    so downstream code never meets a stray float64 JAX array. A future edit that
-    returned the arrays as-is would only warn, not fail, hence this guard.
+    This prevents scoped ``jax.enable_x64()`` arrays from entering a float32 JAX
+    computation and being silently truncated.
     """
     import warnings
 
@@ -135,14 +120,10 @@ def test_rejects_invalid_arguments():
 
 
 def test_generation_gives_up_on_a_budget_rather_than_grinding():
-    """The draw budget is what makes "ungeneratable" a decision the caller can act on.
+    """Check generation raises after its bounded draw budget is exhausted.
 
-    Some sampled decays leave so little phase space that unweighting rejects
-    essentially every draw, and generation cannot finish at any round count. The
-    remedy is to sample a different topology, so the failure has to be a named
-    exception raised inside a bounded amount of work rather than an open-ended
-    grind. Tested through the budget, which is deterministic, rather than through a
-    pathological decay, whose rate depends on phasespace.
+    Near-threshold decays can reject almost every draw; a caller must be able to
+    sample another topology.
     """
     from partiqledtr.data.generation import UngeneratableTopologyError, generate_events
 

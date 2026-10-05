@@ -1,11 +1,6 @@
-"""Per-cell trajectories of the smoke block: loss, g-purity and angle shape.
+"""Plot loss, g-purity, and angle-shape trajectories for s3 smoke cells.
 
-Three panels per cell, one line per seed. The middle panel is the study's
-question -- whether the purity trajectory and the loss move together now that
-the readout is in the algebra -- and the right panel separates the two ways a
-purity can rise (spread toward uniform vs pin at pi/2).
-
-    python dev/s3-readout-channel/figures.py
+Usage: ``python dev/s3-readout-channel/figures.py``.
 """
 
 from __future__ import annotations

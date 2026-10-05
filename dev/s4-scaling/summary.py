@@ -1,16 +1,9 @@
-"""The one-figure summary of the s4 grid, drawn the way s3's is.
+"""Build the s4 summary CSV and four-panel figure.
 
-Four panels over the three graph arms: (a) the g-purity trajectory, (b) the
-validation loss alongside it, (c) the per-epoch purity-loss coupling of the
-mlp runs, (d) known-topology accuracy, raw against the learned preconditioner.
-Arms are ordered by algebra size (cycle 60, ladder 510, odd-chord 1020), so
-panel (d) reads against the certificate range directly.
+Panels compare g-purity, validation loss, their association, and known-topology
+accuracy across the graph arms. ``--plot`` redraws from the existing CSV.
 
-The figure is drawn from ``results/summary.csv`` alone, so the plot can be
-restyled or rebuilt without touching the run records:
-
-    python dev/s4-scaling/summary.py          # rebuild csv, then figure
-    python dev/s4-scaling/summary.py --plot   # figure from existing csv
+Usage: ``python dev/s4-scaling/summary.py [--plot]``.
 """
 
 from __future__ import annotations
@@ -60,6 +53,7 @@ def export() -> None:
         )
         known = record["test_metrics"]["known"]
         base = {
+            "dataset": record.get("dataset", 0),
             "ansatz": cell["ansatz"],
             "dim_g": record["dla_report"]["dim_g"],
             "algebra": "floored" if record["dla_report"]["n_diag_words"] else "floor-free",
@@ -105,10 +99,11 @@ def _load() -> list[dict[str, str]]:
 
 
 def _runs(rows: list[dict[str, str]]) -> dict[tuple, list[dict[str, str]]]:
-    """Group rows by run (ansatz, preconditioner, seed)."""
+    """Group rows by run (dataset, ansatz, preconditioner, seed)."""
     runs: dict[tuple, list[dict[str, str]]] = {}
     for row in rows:
-        runs.setdefault((row["ansatz"], row["preconditioner"], row["seed"]), []).append(row)
+        key = (row.get("dataset", "0"), row["ansatz"], row["preconditioner"], row["seed"])
+        runs.setdefault(key, []).append(row)
     return runs
 
 

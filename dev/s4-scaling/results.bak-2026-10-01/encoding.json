@@ -1,0 +1,65 @@
+{
+ "n_pairs": 4096,
+ "charts": {
+  "pair_polar_boost": {
+   "XY_Cycle": {
+    "mean_purity": 3.678481101989746,
+    "ratio": 1.8684347867965698,
+    "below_threshold": 0.0,
+    "uniform_mean": 1.96875
+   },
+   "XY_Ladder": {
+    "mean_purity": 8.905923843383789,
+    "ratio": 1.4285191297531128,
+    "below_threshold": 0.0,
+    "uniform_mean": 6.234375
+   },
+   "XY_OddChord": {
+    "mean_purity": 17.207670211791992,
+    "ratio": 1.112415075302124,
+    "below_threshold": 0.0,
+    "uniform_mean": 15.46875
+   }
+  },
+  "pair_polar_mass": {
+   "XY_Cycle": {
+    "mean_purity": 1.994416356086731,
+    "ratio": 1.013036847114563,
+    "below_threshold": 0.035400390625,
+    "uniform_mean": 1.96875
+   },
+   "XY_Ladder": {
+    "mean_purity": 6.545526504516602,
+    "ratio": 1.049908995628357,
+    "below_threshold": 0.010498046875,
+    "uniform_mean": 6.234375
+   },
+   "XY_OddChord": {
+    "mean_purity": 15.179847717285156,
+    "ratio": 0.9813234806060791,
+    "below_threshold": 0.0,
+    "uniform_mean": 15.46875
+   }
+  },
+  "pair_polar_theta": {
+   "XY_Cycle": {
+    "mean_purity": 3.07871413230896,
+    "ratio": 1.563791275024414,
+    "below_threshold": 0.00634765625,
+    "uniform_mean": 1.96875
+   },
+   "XY_Ladder": {
+    "mean_purity": 8.112311363220215,
+    "ratio": 1.3012229204177856,
+    "below_threshold": 0.00146484375,
+    "uniform_mean": 6.234375
+   },
+   "XY_OddChord": {
+    "mean_purity": 16.528141021728516,
+    "ratio": 1.0684858560562134,
+    "below_threshold": 0.0,
+    "uniform_mean": 15.46875
+   }
+  }
+ }
+}
